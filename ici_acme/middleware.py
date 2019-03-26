@@ -18,20 +18,18 @@ class HandleJOSE(object):
         # TODO: The value of the "url" header parameter MUST be a string representing the target URL.
         self.context.logger.info(f'IN HANDLEJOSE: {req.path}')
         if req.method == 'POST':
-            self.context.logger.info('IN POST')
             data = req.media
             token = f'{data["protected"]}.{data["payload"]}.{data["signature"]}'
-            self.context.logger.info(token)
+            # self.context.logger.info(f'TOKEN: {token}')
+            # self.context.logger.info(f'DATA: {data}')
+            self.context.logger.info(f'HEADERS: {jws.get_unverified_headers(token)}')
+            self.context.logger.info(f'CLAIMS: {jws.get_unverified_claims(token)}')
             if req.path.endswith('/new-account'):
-                self.context.logger.info('IN NEW-ACCOUNT')
                 protected = json.loads(base64.b64decode(data['protected']))
                 jwk = protected['jwk']
                 assert protected['alg'] == 'RS256'  # TODO
                 req.context['account_creation'] = True
             else:
-                self.context.logger.info(f'DATA: {data}')
-                self.context.logger.info(f'HEADERS: {jws.get_unverified_headers(token)}')
-                self.context.logger.info(f'CLAIMS: {jws.get_unverified_claims(token)}')
                 headers = jws.get_unverified_headers(token)
                 kid = headers['kid']
                 account = self.context.get_account_using_kid(kid)

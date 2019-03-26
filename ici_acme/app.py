@@ -2,9 +2,12 @@
 
 import falcon
 
+import os
+import json
 from falcon import Request, Response
 from ici_acme.context import Context
 from ici_acme.middleware import HandleJOSE
+from ici_acme.utils import b64_urlsafe
 
 __author__ = 'lundberg'
 
@@ -185,8 +188,20 @@ class NewOrderResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
         self.context.logger.info(f'NEW ORDER')
+        # Decode the clients order, e.g.
+        #  {"identifiers": [{"type": "dns", "value": "test.test"}]}
+        acme_request = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+        # TODO: actually create authz and order state
+        authz_id = b64_urlsafe(os.urandom(32 // 8))
+        order_id = b64_urlsafe(os.urandom(32 // 8))
+        resp.media = {
+            'status': 'pending',
+            'identifiers': acme_request['identifiers'],
+            'authorizations': [f'{self.context.base_url}/authz/{authz_id}'],
+            'finalize': f'{self.context.base_url}/order/{order_id}/finalize'
+        }
         resp.set_header('Replay-Nonce', self.context.new_nonce)
-        resp.status = falcon.HTTP_500
+        #resp.status = falcon.HTTP_500
 
 
 class RevokeCertResource(BaseResource):

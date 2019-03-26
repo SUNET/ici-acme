@@ -33,5 +33,5 @@ def urlappend(base: str, path: str) -> str:
     return '{!s}{!s}'.format(base, path)
 
 
-def _b64_urlsafe(b: bytes) -> str:
+def b64_urlsafe(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode('utf-8').strip('=')

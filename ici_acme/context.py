@@ -7,7 +7,7 @@ import yaml
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Optional
 
-from ici_acme.utils import _b64_urlsafe, urlappend
+from ici_acme.utils import b64_urlsafe, urlappend
 
 _ACCOUNTS_FILE = 'accounts.yaml'
 
@@ -46,7 +46,7 @@ class Context(object):
 
     @property
     def new_nonce(self) -> str:
-        nonce = _b64_urlsafe(os.urandom(128//8))
+        nonce = b64_urlsafe(os.urandom(128 // 8))
         self._nonces[nonce] = True
         return nonce
 
@@ -58,7 +58,7 @@ class Context(object):
 
     def save_account(self, protected: str) -> Account:
         id = int(time.time())  # TODO: make sure there is no account with this ID already
-        digest = _b64_urlsafe(hashlib.sha256(protected.encode()).digest())
+        digest = b64_urlsafe(hashlib.sha256(protected.encode()).digest())
         account = Account(id=id, digest=digest, protected=protected)
         self._accounts[digest] = account
         _tmpfile = _ACCOUNTS_FILE + '.tmp'
