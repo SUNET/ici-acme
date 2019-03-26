@@ -7,3 +7,4 @@ accounts/
 *mypy_cache*
 *~
 \#*
+accounts.yaml

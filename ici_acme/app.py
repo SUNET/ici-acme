@@ -184,8 +184,8 @@ class NewAccountResource(BaseResource):
 class NewOrderResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
         self.context.logger.info(f'NEW ORDER')
+        resp.set_header('Replay-Nonce', self.context.new_nonce)
         resp.status = falcon.HTTP_500
 
 
