@@ -3,7 +3,7 @@
 import falcon
 
 from falcon import Request, Response
-from ici_acme.utils import Context
+from ici_acme.context import Context
 from ici_acme.middleware import HandleJOSE
 
 __author__ = 'lundberg'

@@ -4,7 +4,7 @@ import base64
 from jose import jws
 import json
 from falcon import Request, Response, HTTPForbidden
-from ici_acme.utils import Context
+from ici_acme.context import Context
 
 __author__ = 'lundberg'
 
