@@ -16,7 +16,7 @@ class HandleJOSE(object):
 
     def process_request(self, req: Request, resp: Response):
         # TODO: The value of the "url" header parameter MUST be a string representing the target URL.
-        self.context.logger.info('IN HANDLEJOSE')
+        self.context.logger.info(f'IN HANDLEJOSE: {req.path}')
         if req.method == 'POST':
             self.context.logger.info('IN POST')
             data = req.media
@@ -30,7 +30,19 @@ class HandleJOSE(object):
                 req.context['account_creation'] = True
             else:
                 self.context.logger.info(f'DATA: {data}')
+                self.context.logger.info(f'HEADERS: {jws.get_unverified_headers(token)}')
+                self.context.logger.info(f'CLAIMS: {jws.get_unverified_claims(token)}')
+                headers = jws.get_unverified_headers(token)
+                kid = headers['kid']
+                account = self.context.get_account_using_kid(kid)
+                if not account:
+                    raise HTTPForbidden('Account not found')
+                self.context.logger.info(f'Authenticating request for account {account}')
+                req.context['account'] = account
+                protected = json.loads(base64.b64decode(account.protected))
+                jwk = protected['jwk']
             ret = jws.verify(token, jwk, algorithms='RS256')  # TODO
-            self.context.logger.info(ret)
-            req.context['jose_verified_data'] = data
+            self.context.logger.info(f'Verified data: {ret}')
+            req.context['jose_verified_data'] = ret
+            req.context['jose_unverified_data'] = data
 

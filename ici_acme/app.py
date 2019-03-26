@@ -167,21 +167,26 @@ class NewNonceResource(BaseResource):
 class NewAccountResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        jwk = req.context['jose_verified_data']['protected']
+        jwk = req.context['jose_unverified_data']['protected']
         account = self.context.save_account(jwk)
-        account_url = f'{self.context.base_url}/accounts/{account}'
+        self.context.logger.info(f'Account {account} registered')
+        account_url = f'{self.context.base_url}/accounts/{account.digest}'
         resp.set_header('Location', account_url)
         resp.media = {
+            'id': account.id,  # Dehydrated/Letsencrypt compatibility - not in RFC8555
             'status': 'valid',
             'orders': f'{account_url}/orders',
         }
+        resp.set_header('Replay-Nonce', self.context.new_nonce)
         resp.status = falcon.HTTP_201
 
 
 class NewOrderResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        pass
+        resp.set_header('Replay-Nonce', self.context.new_nonce)
+        self.context.logger.info(f'NEW ORDER')
+        resp.status = falcon.HTTP_500
 
 
 class RevokeCertResource(BaseResource):
@@ -204,4 +209,5 @@ api.req_options.media_handlers['application/jose+json'] = api.req_options.media_
 api.add_route('/directory', DirectoryResource(context=context))
 api.add_route('/new-nonce', NewNonceResource(context=context))
 api.add_route('/new-account', NewAccountResource(context=context))
+api.add_route('/new-order', NewOrderResource(context=context))
 

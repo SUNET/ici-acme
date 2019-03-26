@@ -1,3 +1,9 @@
 bin/
 env/
 .idea/
+certs/
+accounts/
+*pycache*
+*mypy_cache*
+*~
+\#*
