@@ -46,5 +46,5 @@ class Context(object):
 
     def get_account_using_kid(self, kid) -> Optional[Account]:
         last_part = kid.split('/')[-1]
-        return self.store.load('account', last_part)
+        return self.store.load_account(last_part)
 

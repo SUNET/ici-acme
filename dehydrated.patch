@@ -1,0 +1,38 @@
+--- /home/ft/work/thulin.net/multiverse/fe1.thulin.net/overlay/usr/sbin/dehydrated	2019-03-27 15:30:47.620926659 +0100
++++ dehydrated	2019-03-27 14:14:52.462841891 +0100
+@@ -94,7 +94,7 @@
+ 
+ # verify configuration values
+ verify_config() {
+-  [[ "${CHALLENGETYPE}" == "http-01" || "${CHALLENGETYPE}" == "dns-01" || "${CHALLENGETYPE}" == "tls-alpn-01" ]] || _exiterr "Unknown challenge type ${CHALLENGETYPE}... cannot continue."
++  [[ "${CHALLENGETYPE}" == "http-01" || "${CHALLENGETYPE}" == "dns-01" || "${CHALLENGETYPE}" == "tls-alpn-01" || "${CHALLENGETYPE}" == "x-sunet-01" ]] || _exiterr "Unknown challenge type ${CHALLENGETYPE}... cannot continue."
+   if [[ "${CHALLENGETYPE}" = "dns-01" ]] && [[ -z "${HOOK}" ]]; then
+     _exiterr "Challenge type dns-01 needs a hook script for deployment... cannot continue."
+   fi
+@@ -747,10 +747,14 @@
+     # Prepare challenge tokens and deployment parameters
+     keyauth="${challenge_tokens[${idx}]}.${thumbprint}"
+ 
++    echo "FREDRIK: CHALLENGETYPE ${CHALLENGETYPE}"
+     case "${CHALLENGETYPE}" in
+       "http-01")
+         # Store challenge response in well-known location and make world-readable (so that a webserver can access it)
+-        printf '%s' "${keyauth}" > "${WELLKNOWN}/${challenge_tokens[${idx}]}"
++          printf '%s' "${keyauth}" > "${WELLKNOWN}/${challenge_tokens[${idx}]}"
++	  echo "FREDRIK: FILE ${WELLKNOWN}/${challenge_tokens[${idx}]}:"
++	  cat "${WELLKNOWN}/${challenge_tokens[${idx}]}"
++	  echo "EOF"
+         chmod a+r "${WELLKNOWN}/${challenge_tokens[${idx}]}"
+         keyauth_hook="${keyauth}"
+         ;;
+@@ -762,6 +766,10 @@
+         keyauth_hook="$(printf '%s' "${keyauth}" | "${OPENSSL}" dgst -sha256 -c -hex | awk '{print $2}')"
+         generate_alpn_certificate "${identifier}" "${keyauth_hook}"
+         ;;
++      "x-sunet-01")
++          keyauth_hook="${keyauth}"
++	  echo "X-SUNET-01: KEYAUTH ${keyauth}"
++	  ;;
+     esac
+ 
+     keyauths[${idx}]="${keyauth}"

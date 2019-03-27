@@ -16,7 +16,7 @@ class HandleJOSE(object):
 
     def process_request(self, req: Request, resp: Response):
         # TODO: The value of the "url" header parameter MUST be a string representing the target URL.
-        self.context.logger.info(f'IN HANDLEJOSE: {req.path}')
+        self.context.logger.info(f'\n\n\nIN PROCESS_REQUEST: {req.path}')
         if req.method == 'POST':
             data = req.media
             token = f'{data["protected"]}.{data["payload"]}.{data["signature"]}'

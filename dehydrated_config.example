@@ -1,2 +1,3 @@
 CA=http://localhost:8000/directory
 WELLKNOWN=/tmp
+HOOK=/home/ft/work/SUNET/ici-acme/tmp/hook.sh
