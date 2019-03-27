@@ -10,7 +10,7 @@ from falcon import Request, Response
 from ici_acme.context import Context
 from ici_acme.store import Store, Account, Order, Authorization, Challenge
 from ici_acme.middleware import HandleJOSE
-from ici_acme.utils import b64_urlsafe
+from ici_acme.utils import b64_urlsafe, urlappend
 
 __author__ = 'lundberg'
 
@@ -24,6 +24,12 @@ class BaseResource(object):
 
     def __init__(self, context: Context):
         self.context = context
+
+    def url_for(self, *args) -> str:
+        url = self.context.base_url
+        for arg in args:
+            url = urlappend(url, f'{arg}')
+        return url
 
 
 class AccountResource(BaseResource):
@@ -44,13 +50,14 @@ class AccountResource(BaseResource):
 
 
 class OrderListResource(BaseResource):
+
     def on_post(self, req: Request, resp: Response):
         self.context.logger.info(f'Processing orderlist')
         resp.set_header('Replay-Nonce', self.context.new_nonce)
         account = req.context['account']
         assert isinstance(account, Account)
         resp.media = {
-            'orders': [f'{self.context.base_url}/order/{id}' for id in account.order_ids]
+            'orders': [self.url_for('order', order_id) for order_id in account.order_ids]
         }
 
 
@@ -59,25 +66,21 @@ class OrderResource(BaseResource):
     Representing an account's requests to issue certificates
     """
 
-    def on_post(self, req: Request, resp: Response, id: str):
-        order = self.context.store.load_order(id)
-        self.order = order
+    def on_post(self, req: Request, resp: Response, order_id: str):
+        order = self.context.store.load_order(order_id)
+        req.context['order'] = order
         self.context.logger.info(f'Processing order {order}')
         resp.set_header('Replay-Nonce', self.context.new_nonce)
         data = {
             'status': order.status,
-
             'identifiers': order.identifiers,
-
             #'notBefore': '2016-01-01T00:00:00Z',  # optional
             #'notAfter': '2016-01-08T00:00:00Z',  # optional
-
-            'authorizations': [f'{self.context.base_url}/authz/{authz_id}' for authz_id in order.authorization_ids],
-
-            'finalize': f'{self.context.base_url}/order/{order.id}/finalize',
-
+            'authorizations': [self.url_for('authz', authz_id) for authz_id in order.authorization_ids],
+            'finalize': self.url_for('order', order.id, 'finalize'),
             #'certificate': 'https://example.com/acme/cert/mAt3xBGaobw'  # optional
         }
+
         if order.status in ['pending', 'valid']:
             data['expires'] = str(order.expires)
 
@@ -86,11 +89,10 @@ class OrderResource(BaseResource):
 
 class FinalizeOrderResource(OrderResource):
 
-    def on_post(self, req: Request, resp: Response, id):
-        super().on_post(req, resp, id)
-        self.context.logger.info(f'Finalizing order {self.order}')
-
-
+    def on_post(self, req: Request, resp: Response, order_id: str):
+        super().on_post(req, resp, order_id)
+        order = req.context['order']
+        self.context.logger.info(f'Finalizing order {order}')
 
 
 class AuthorizationResource(BaseResource):
@@ -145,7 +147,6 @@ class AuthorizationResource(BaseResource):
         resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
-
 class ChallengeResource(BaseResource):
     """
     Representing a challenge to prove control of an identifier
@@ -172,13 +173,13 @@ class DirectoryResource(BaseResource):
 
     def on_get(self, req: Request, resp: Response):
         resp.media = {
-            'newNonce': f'{self.context.base_url}/new-nonce',
-            'newAccount': f'{self.context.base_url}/new-account',
-            'newOrder': f'{self.context.base_url}/new-order',
+            'newNonce': self.url_for('new-nonce'),
+            'newAccount': self.url_for('new-account'),
+            'newOrder': self.url_for('new-order'),
             #  (If the ACME server does not implement pre-authorization it MUST omit the 'newAuthz' field)
-            'newAuthz': f'{self.context.base_url}/new-authz',
-            'revokeCert': f'{self.context.base_url}/revoke-cert',
-            'keyChange': f'{self.context.base_url}/key-change',
+            'newAuthz': self.url_for('new-authz'),
+            'revokeCert': self.url_for('revoke-cert'),
+            'keyChange': self.url_for('key-change'),
             # meta optional
             # 'meta': {
                 # 'termsOfService': 'https://example.com/acme/terms/2017-5-30',
@@ -206,13 +207,12 @@ class NewAccountResource(BaseResource):
         jwk_data = req.context['jose_unverified_data']['protected']
         account = self.context.new_account(jwk_data)
         self.context.logger.info(f'Account {account} registered')
-        account_url = f'{self.context.base_url}/accounts/{account.id}'
         resp.media = {
             'id': int(account.id),  # Dehydrated/Letsencrypt compatibility - not in RFC8555. *Must* be an integer here.
             'status': 'valid',
-            'orders': f'{account_url}/orders',
+            'orders': self.url_for('accounts', account.id, 'orders'),
         }
-        resp.set_header('Location', account_url)
+        resp.set_header('Location', self.url_for('accounts', account.id))
         resp.set_header('Replay-Nonce', self.context.new_nonce)
         resp.status = falcon.HTTP_201
 
@@ -231,7 +231,7 @@ class NewOrderResource(BaseResource):
             challenge_id = b64_urlsafe(os.urandom(128 // 8))
             chall = Challenge(id=challenge_id,
                               type='x-sunet-01',
-                              url=f'{self.context.base_url}/challenge/{challenge_id}',
+                              url=self.url_for('challenge', challenge_id),
                               status='pending',
                               created=now,
                               # token for type='http-01'
@@ -261,16 +261,14 @@ class NewOrderResource(BaseResource):
         account.order_ids += [order.id]
         self.context.store.save('order', order.id, order.to_dict())
         self.context.store.save('account', account.id, account.to_dict())
-        order_url = f'{self.context.base_url}/order/{order.id}'
         resp.media = {
             'status': 'pending',
             'identifiers': order.identifiers,
-            'authorizations': [f'{self.context.base_url}/authz/{this}' for this in order.authorization_ids],
-            'finalize': f'{order_url}/finalize'
+            'authorizations': [self.url_for('authz', authz_id) for authz_id in order.authorization_ids],
+            'finalize': self.url_for('order', order.id, 'finalize')
         }
-        resp.set_header('Location', order_url)
+        resp.set_header('Location', self.url_for('order', order.id))
         resp.set_header('Replay-Nonce', self.context.new_nonce)
-        #resp.status = falcon.HTTP_500
 
 
 class RevokeCertResource(BaseResource):
@@ -284,11 +282,12 @@ class KeyChangeResource(BaseResource):
 class HealthCheckResource(BaseResource):
     pass
 
+
 class FakeAuthResource(BaseResource):
 
     def on_get(self, req: Request, resp: Response, client_data):
-        id = client_data.split('.')[0]
-        challenge = self.context.store.load_challenge(id)
+        challenge_id = client_data.split('.')[0]
+        challenge = self.context.store.load_challenge(challenge_id)
         self.context.logger.info(f'Processing challenge {challenge}')
         challenge.status = 'valid'
         challenge.validated = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -311,6 +310,8 @@ api.add_route('/new-order', NewOrderResource(context=context))
 api.add_route('/authz/{id}', AuthorizationResource(context=context))
 api.add_route('/challenge/{id}', ChallengeResource(context=context))
 api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))
-api.add_route('/order/{id}/finalize', FinalizeOrderResource(context=context))
-api.add_route('/order/{id}', OrderResource(context=context))
-api.add_route('/orderlist', OrderListResource(context=context))
+# OrderResource
+api.add_route('/order', OrderListResource(context=context))
+api.add_route('/order/{order_id}', OrderResource(context=context))
+api.add_route('/order/{order_id}/finalize', FinalizeOrderResource(context=context))
+

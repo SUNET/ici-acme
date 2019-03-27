@@ -15,6 +15,7 @@ class Context(object):
         self.store = store
         self._nonces: Dict[str, bool] = {}
 
+        self.protocol: str = 'http'
         self.server_name: str = 'localhost:8000'
         self.application_root: str = ''
 
@@ -33,9 +34,10 @@ class Context(object):
 
     @property
     def base_url(self) -> str:
+        base_url = f'{self.protocol}://{self.server_name}'
         if self.application_root:
-            return urlappend(self.server_name, self.application_root)
-        return self.server_name
+            return urlappend(base_url, self.application_root)
+        return base_url
 
     def new_account(self, jwk_data: Mapping) -> Account:
         # Use an integer account_id to be compatible with LetsEncrypt pre-RFC8555 'id' parameter
