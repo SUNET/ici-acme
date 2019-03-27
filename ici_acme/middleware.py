@@ -24,7 +24,8 @@ class HandleJOSE(object):
             # self.context.logger.info(f'DATA: {data}')
             self.context.logger.info(f'HEADERS: {jws.get_unverified_headers(token)}')
             self.context.logger.info(f'CLAIMS: {jws.get_unverified_claims(token)}')
-            if req.path.endswith('/new-account'):
+
+            if req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
                 protected = json.loads(base64.b64decode(data['protected']))
                 jwk = protected['jwk']
                 assert protected['alg'] == 'RS256'  # TODO
@@ -34,10 +35,11 @@ class HandleJOSE(object):
                 kid = headers['kid']
                 account = self.context.get_account_using_kid(kid)
                 if not account:
+                    self.context.logger.warning(f'Account not found using kid {kid}')
                     raise HTTPForbidden('Account not found')
                 self.context.logger.info(f'Authenticating request for account {account}')
                 req.context['account'] = account
-                protected = json.loads(base64.b64decode(account.protected))
+                protected = json.loads(base64.b64decode(account.jwk_data))
                 jwk = protected['jwk']
             ret = jws.verify(token, jwk, algorithms='RS256')  # TODO
             self.context.logger.info(f'Verified data: {ret}')

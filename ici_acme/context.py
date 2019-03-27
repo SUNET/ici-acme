@@ -1,38 +1,19 @@
-import hashlib
-import logging
 import os
 import sys
 import time
-import yaml
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Optional
+import logging
 
+from typing import Dict, Optional, Mapping
+
+from ici_acme.store import Account, Store
 from ici_acme.utils import b64_urlsafe, urlappend
-
-_ACCOUNTS_FILE = 'accounts.yaml'
-
-@dataclass()
-class Account(object):
-    id: int
-    digest: str
-    protected: str = field(repr=False)
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data)
 
 
 class Context(object):
 
-    def __init__(self):
+    def __init__(self, store: Store):
+        self.store = store
         self._nonces: Dict[str, bool] = {}
-        self._accounts: Dict[str, Account] = {}
-
-        if os.path.isfile(_ACCOUNTS_FILE):
-            with open(_ACCOUNTS_FILE) as fd:
-                data = yaml.safe_load(fd)
-                for k, v in data.items():
-                    self._accounts[k] = Account.from_dict(v)
 
         self.server_name: str = 'localhost:8000'
         self.application_root: str = ''
@@ -56,31 +37,14 @@ class Context(object):
             return urlappend(self.server_name, self.application_root)
         return self.server_name
 
-    def save_account(self, protected: str) -> Account:
-        id = int(time.time())  # TODO: make sure there is no account with this ID already
-        digest = b64_urlsafe(hashlib.sha256(protected.encode()).digest())
-        account = Account(id=id, digest=digest, protected=protected)
-        self._accounts[digest] = account
-        _tmpfile = _ACCOUNTS_FILE + '.tmp'
-        with open(_tmpfile, 'w') as fd:
-            _ser = {}
-            for k, v in self._accounts.items():
-                _ser[k] = asdict(v)
-            fd.write(yaml.safe_dump(_ser))
-        os.rename(_tmpfile, _ACCOUNTS_FILE)
+    def new_account(self, jwk_data: Mapping) -> Account:
+        # Use an integer account_id to be compatible with LetsEncrypt pre-RFC8555 'id' parameter
+        id = str(int(time.time()))  # TODO: make sure there is no account with this ID already
+        account = Account(id=id, jwk_data=jwk_data)
+        self.store.save('account', str(id), account.to_dict())
         return account
 
     def get_account_using_kid(self, kid) -> Optional[Account]:
         last_part = kid.split('/')[-1]
-        try:
-            # If last_part is an int, it looks like dehydrated in pre-RFC8555 mode,
-            # so kid was not at all the Location: URL returned from new-account but
-            # rather the new-account URL with the 'id' returned. Example:
-            id = int(last_part)
-            match = [x for x in self._accounts.values() if x.id == id]
-            return match[0] if match else None
-        except ValueError:
-            pass
-        # last_part is hopefully the digest at the end of the new-account Location: URL
-        match = [x for x in self._accounts.values() if x.digest == last_part]
-        return match[0] if match else None
+        return self.store.load('account', last_part)
+

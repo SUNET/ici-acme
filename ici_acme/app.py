@@ -4,8 +4,11 @@ import falcon
 
 import os
 import json
+import datetime
+
 from falcon import Request, Response
 from ici_acme.context import Context
+from ici_acme.store import Store, Account, Order, Authorization
 from ici_acme.middleware import HandleJOSE
 from ici_acme.utils import b64_urlsafe
 
@@ -170,13 +173,13 @@ class NewNonceResource(BaseResource):
 class NewAccountResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        jwk = req.context['jose_unverified_data']['protected']
-        account = self.context.save_account(jwk)
+        jwk_data = req.context['jose_unverified_data']['protected']
+        account = self.context.new_account(jwk_data)
         self.context.logger.info(f'Account {account} registered')
-        account_url = f'{self.context.base_url}/accounts/{account.digest}'
+        account_url = f'{self.context.base_url}/accounts/{account.id}'
         resp.set_header('Location', account_url)
         resp.media = {
-            'id': account.id,  # Dehydrated/Letsencrypt compatibility - not in RFC8555
+            'id': int(account.id),  # Dehydrated/Letsencrypt compatibility - not in RFC8555. *Must* be an integer here.
             'status': 'valid',
             'orders': f'{account_url}/orders',
         }
@@ -191,14 +194,25 @@ class NewOrderResource(BaseResource):
         # Decode the clients order, e.g.
         #  {"identifiers": [{"type": "dns", "value": "test.test"}]}
         acme_request = json.loads(req.context['jose_verified_data'].decode('utf-8'))
-        # TODO: actually create authz and order state
-        authz_id = b64_urlsafe(os.urandom(32 // 8))
-        order_id = b64_urlsafe(os.urandom(32 // 8))
+        authz = Authorization(id=b64_urlsafe(os.urandom(128 // 8)),
+                              created=datetime.datetime.now(tz=datetime.timezone.utc),
+                              )
+        order = Order(id=b64_urlsafe(os.urandom(128 // 8)),
+                      created=datetime.datetime.now(tz=datetime.timezone.utc),
+                      identifiers=acme_request['identifiers'],
+                      authorizations=[authz.id],
+                      )
+        account = req.context['account']
+        account.last_order = datetime.datetime.now(tz=datetime.timezone.utc)
+        account.orders += [order.id]
+        self.context.store.save('authorization', authz.id, authz.to_dict())
+        self.context.store.save('order', order.id, order.to_dict())
+        self.context.store.save('account', account.id, account.to_dict())
         resp.media = {
             'status': 'pending',
-            'identifiers': acme_request['identifiers'],
-            'authorizations': [f'{self.context.base_url}/authz/{authz_id}'],
-            'finalize': f'{self.context.base_url}/order/{order_id}/finalize'
+            'identifiers': order.identifiers,
+            'authorizations': [f'{self.context.base_url}/authz/{this}' for this in order.authorizations],
+            'finalize': f'{self.context.base_url}/order/{order.id}/finalize'
         }
         resp.set_header('Replay-Nonce', self.context.new_nonce)
         #resp.status = falcon.HTTP_500
@@ -216,7 +230,8 @@ class HealthCheckResource(BaseResource):
     pass
 
 
-context = Context()
+store = Store('data')
+context = Context(store)
 api = falcon.API(middleware=[HandleJOSE(context)])
 
 context.logger.info('Starting api')
