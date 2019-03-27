@@ -9,3 +9,4 @@ accounts/
 \#*
 accounts.yaml
 data/
+dehydrated_client/dehydrated

@@ -1,9 +1,9 @@
 #!/bin/sh
 
-#rm -rf accounts
+#rm -rf ./dehydrated_client/accounts
 
-test -d accounts || ~/work/thulin.net/multiverse/fe1.thulin.net/overlay/usr/sbin/dehydrated --config dehydrated_config.example --register --accept-terms
+PATH="$PATH:./dehydrated_client"
 
-#PATH="$PATH:/home/ft/work/thulin.net/multiverse/fe1.thulin.net/overlay/usr/sbin/"
-PATH="$PATH:./tmp"
-dehydrated --config dehydrated_config.example --cron --domain test.test -t x-sunet-01
+test -d ./dehydrated_client/accounts || dehydrated --config ./dehydrated_client/dehydrated_config.example --register --accept-terms
+
+dehydrated --config ./dehydrated_client/dehydrated_config.example --cron --domain test.test -t x-sunet-01
