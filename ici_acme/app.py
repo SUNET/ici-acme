@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import random
+import base64
 
 import falcon
 
@@ -9,9 +10,12 @@ import datetime
 
 from falcon import Request, Response
 from ici_acme.context import Context
-from ici_acme.store import Store, Account, Order, Authorization, Challenge, Certificate
+from ici_acme.csr import validate
+from ici_acme.store import Store
+from ici_acme.data import Account, Order, Authorization, Challenge, Certificate
 from ici_acme.middleware import HandleJOSE, HandleReplayNonce
-from ici_acme.utils import b64_encode, urlappend
+from ici_acme.utils import b64_encode, urlappend, b64_decode
+
 
 __author__ = 'lundberg'
 
@@ -129,9 +133,15 @@ class FinalizeOrderResource(OrderResource):
     def on_post(self, req: Request, resp: Response, order_id: str):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Finalizing order {order}')
+
         if order.status == 'ready':
-            order.certificate_id = b64_encode(os.urandom(128 // 8))
             data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+            # PEM format is plain base64 encoded
+            csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
+            if not validate(csr, order, context):
+                return falcon.HTTPForbidden
+
+            order.certificate_id = b64_encode(os.urandom(128 // 8))
             cert = Certificate(csr=data['csr'],
                                created=datetime.datetime.now(tz=datetime.timezone.utc),
                                )

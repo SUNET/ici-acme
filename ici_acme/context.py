@@ -5,7 +5,8 @@ import logging
 
 from typing import Dict, Optional, Mapping
 
-from ici_acme.store import Account, Store
+from ici_acme.store import Store
+from ici_acme.data import Account
 from ici_acme.utils import b64_encode, urlappend
 
 
