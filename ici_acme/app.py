@@ -73,40 +73,12 @@ class OrderResource(BaseResource):
     def on_post(self, req: Request, resp: Response, order_id: str):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Processing order {order}')
-        _old_status = order.status
-        # States described in RFC8555 section 7.4
-        if order.status == 'invalid':
-            pass
-        if order.status == 'pending':
-            # check if any authorizations are now valid, in which case the order should
-            # proceed to 'ready'
-            for authz_id in order.authorization_ids:
-                auth = self.context.store.load_authorization(authz_id)
-                if auth.status == 'pending':
-                    # check if authorization has now completed
-                    for chall_id in auth.challenge_ids:
-                        challenge = self.context.store.load_challenge(chall_id)
-                        if challenge.status == 'valid':
-                            auth.status = 'valid'
-                            self.context.store.save('authorization', auth.id, auth.to_dict())
-                if auth.status == 'valid':
-                    order.status = 'ready'
-                    break
-                self.context.logger.info(f'Authorization {auth} still not valid')
+
+        update_order_state(order, context)
 
         if order.status == 'processing':
-            cert = self.context.store.load_certificate(order.certificate_id)
-            if cert.certificate is None:
-                # certificate still not issued
-                resp.set_header('Retry-After', 30 + random.randint(-5, 5))
-            else:
-                order.status = 'valid'
-
-        if order.status != _old_status:
-            self.context.logger.info(f'Order changed from state {_old_status} to {order.status}')
-            self.context.store.save('order', order.id, order.to_dict())
-        else:
-            self.context.logger.info(f'Order remained in state {order.status}')
+            # certificate still not issued
+            resp.set_header('Retry-After', 30 + random.randint(-5, 5))
 
         data = {
             'status': order.status,
@@ -134,26 +106,27 @@ class FinalizeOrderResource(OrderResource):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Finalizing order {order}')
 
-        if order.status == 'ready':
-            data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
-            # PEM format is plain base64 encoded
-            csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
-            if not validate(csr, order, context):
-                return falcon.HTTPForbidden
+        update_order_state(order, context)
 
-            order.certificate_id = b64_encode(os.urandom(128 // 8))
-            cert = Certificate(csr=data['csr'],
-                               created=datetime.datetime.now(tz=datetime.timezone.utc),
-                               )
-            order.status = 'processing'
-            self.context.logger.info('Order changed from state ready to processing')
-            self.context.store.save('certificate', order.certificate_id, cert.to_dict())
-            self.context.store.save('order', order.id, order.to_dict())
-            super().on_post(req, resp, order.id)
-        else:
+        if order.status != 'ready':
             # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
-            self.context.logger.error('Not allowed call to finalize, order not in ready state')
+            self.context.logger.error('Not allowed call to finalize, order not in "ready" state')
             resp.status = falcon.HTTP_403
+
+        data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+        # PEM format is plain base64 encoded
+        csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
+        if not validate(csr, order, context):
+            return falcon.HTTPForbidden
+
+        order.certificate_id = b64_encode(os.urandom(128 // 8))
+        cert = Certificate(csr=data['csr'],
+                           created=datetime.datetime.now(tz=datetime.timezone.utc),
+                           )
+        self.context.store.save('certificate', order.certificate_id, cert.to_dict())
+        self.context.store.save('order', order.id, order.to_dict())
+
+        super().on_post(req, resp, order.id)
 
 
 class AuthorizationResource(BaseResource):
@@ -359,6 +332,46 @@ class FakeAuthResource(BaseResource):
         resp.media = {
             'status': 'OK'
         }
+
+
+def update_order_state(order: Order, context: Context):
+    """ Implements the state machine changes described in RFC8555 section 7.4. """
+    _old_status = order.status
+
+    if order.status == 'invalid':
+        return
+    if order.status == 'pending':
+        # check if any authorizations are now valid, in which case the order should
+        # proceed to 'ready'
+        for authz_id in order.authorization_ids:
+            auth = context.store.load_authorization(authz_id)
+            if auth.status == 'pending':
+                # check if authorization has now completed
+                for chall_id in auth.challenge_ids:
+                    challenge = context.store.load_challenge(chall_id)
+                    if challenge.status == 'valid':
+                        auth.status = 'valid'
+                        context.store.save('authorization', auth.id, auth.to_dict())
+            if auth.status == 'valid':
+                order.status = 'ready'
+                break
+            context.logger.info(f'Authorization {auth} still not valid')
+
+    if order.status == 'ready':
+        if order.certificate_id is not None:
+            # a finalize request has been issued
+            order.status = 'processing'
+
+    if order.status == 'processing':
+        cert = context.store.load_certificate(order.certificate_id)
+        if cert.certificate is not None:
+            order.status = 'valid'
+
+    if order.status != _old_status:
+        context.logger.info(f'Order changed from state {_old_status} to {order.status}')
+        context.store.save('order', order.id, order.to_dict())
+    else:
+        context.logger.info(f'Order remained in state {order.status}')
 
 
 store = Store('data')
