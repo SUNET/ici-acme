@@ -49,7 +49,7 @@ class AccountResource(BaseResource):
         'termsOfServiceAgreed': true,  # optional
         'orders': 'https://example.com/acme/orders/rzGoeA'  # required
     }
-    
+
     """
     pass
 
@@ -74,7 +74,7 @@ class OrderResource(BaseResource):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Processing order {order}')
 
-        update_order_state(order, context)
+        self.update_order_state(order)
 
         if order.status == 'processing':
             # certificate still not issued
@@ -99,6 +99,45 @@ class OrderResource(BaseResource):
 
         resp.media = data
 
+    def update_order_state(self, order: Order):
+        """ Implements the state machine changes described in RFC8555 section 7.4. """
+        _old_status = order.status
+
+        if order.status == 'invalid':
+            return
+        if order.status == 'pending':
+            # check if any authorizations are now valid, in which case the order should
+            # proceed to 'ready'
+            for authz_id in order.authorization_ids:
+                auth = self.context.store.load_authorization(authz_id)
+                if auth.status == 'pending':
+                    # check if authorization has now completed
+                    for chall_id in auth.challenge_ids:
+                        challenge = self.context.store.load_challenge(chall_id)
+                        if challenge.status == 'valid':
+                            auth.status = 'valid'
+                            self.context.store.save('authorization', auth.id, auth.to_dict())
+                if auth.status == 'valid':
+                    order.status = 'ready'
+                    break
+                self.context.logger.info(f'Authorization {auth} still not valid')
+
+        if order.status == 'ready':
+            if order.certificate_id is not None:
+                # a finalize request has been issued
+                order.status = 'processing'
+
+        if order.status == 'processing':
+            cert = self.context.store.load_certificate(order.certificate_id)
+            if cert.certificate is not None:
+                order.status = 'valid'
+
+        if order.status != _old_status:
+            self.context.logger.info(f'Order changed from state {_old_status} to {order.status}')
+            self.context.store.save('order', order.id, order.to_dict())
+        else:
+            self.context.logger.info(f'Order remained in state {order.status}')
+
 
 class FinalizeOrderResource(OrderResource):
 
@@ -106,7 +145,7 @@ class FinalizeOrderResource(OrderResource):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Finalizing order {order}')
 
-        update_order_state(order, context)
+        self.update_order_state(order)
 
         if order.status != 'ready':
             # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
@@ -132,7 +171,7 @@ class FinalizeOrderResource(OrderResource):
 class AuthorizationResource(BaseResource):
     """
     Representing an account's authorization to act for an identifier
-    
+
     {
         'status': 'valid',  # required
         'expires': '2015-03-01T14:09:07.99Z',  # optional
@@ -154,7 +193,7 @@ class AuthorizationResource(BaseResource):
 
         'wildcard': False  # optional
     }
-    
+
     """
     def on_post(self, req: Request, resp: Response, id: str):
         authz = self.context.store.load_authorization(id)
@@ -332,46 +371,6 @@ class FakeAuthResource(BaseResource):
         resp.media = {
             'status': 'OK'
         }
-
-
-def update_order_state(order: Order, context: Context):
-    """ Implements the state machine changes described in RFC8555 section 7.4. """
-    _old_status = order.status
-
-    if order.status == 'invalid':
-        return
-    if order.status == 'pending':
-        # check if any authorizations are now valid, in which case the order should
-        # proceed to 'ready'
-        for authz_id in order.authorization_ids:
-            auth = context.store.load_authorization(authz_id)
-            if auth.status == 'pending':
-                # check if authorization has now completed
-                for chall_id in auth.challenge_ids:
-                    challenge = context.store.load_challenge(chall_id)
-                    if challenge.status == 'valid':
-                        auth.status = 'valid'
-                        context.store.save('authorization', auth.id, auth.to_dict())
-            if auth.status == 'valid':
-                order.status = 'ready'
-                break
-            context.logger.info(f'Authorization {auth} still not valid')
-
-    if order.status == 'ready':
-        if order.certificate_id is not None:
-            # a finalize request has been issued
-            order.status = 'processing'
-
-    if order.status == 'processing':
-        cert = context.store.load_certificate(order.certificate_id)
-        if cert.certificate is not None:
-            order.status = 'valid'
-
-    if order.status != _old_status:
-        context.logger.info(f'Order changed from state {_old_status} to {order.status}')
-        context.store.save('order', order.id, order.to_dict())
-    else:
-        context.logger.info(f'Order remained in state {order.status}')
 
 
 store = Store('data')
