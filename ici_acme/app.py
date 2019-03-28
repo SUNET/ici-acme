@@ -10,7 +10,7 @@ import datetime
 from falcon import Request, Response
 from ici_acme.context import Context
 from ici_acme.store import Store, Account, Order, Authorization, Challenge, Certificate
-from ici_acme.middleware import HandleJOSE
+from ici_acme.middleware import HandleJOSE, HandleReplayNonce
 from ici_acme.utils import b64_encode, urlappend
 
 __author__ = 'lundberg'
@@ -54,7 +54,6 @@ class OrderListResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
         self.context.logger.info(f'Processing orderlist')
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
         account = req.context['account']
         assert isinstance(account, Account)
         resp.media = {
@@ -70,7 +69,6 @@ class OrderResource(BaseResource):
     def on_post(self, req: Request, resp: Response, order_id: str):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Processing order {order}')
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
         _old_status = order.status
         # States described in RFC8555 section 7.4
         if order.status == 'invalid':
@@ -91,10 +89,7 @@ class OrderResource(BaseResource):
                     order.status = 'ready'
                     break
                 self.context.logger.info(f'Authorization {auth} still not valid')
-        if order.status == 'ready':
-            if order.certificate_id is not None:
-                # a finalize request has been issued
-                order.status = 'processing'
+
         if order.status == 'processing':
             cert = self.context.store.load_certificate(order.certificate_id)
             if cert.certificate is None:
@@ -127,7 +122,6 @@ class OrderResource(BaseResource):
             data['expires'] = str(order.expires)
 
         resp.media = data
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
 class FinalizeOrderResource(OrderResource):
@@ -135,17 +129,21 @@ class FinalizeOrderResource(OrderResource):
     def on_post(self, req: Request, resp: Response, order_id: str):
         order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Finalizing order {order}')
-        if order.certificate_id is not None:
-            self.context.logger.error(f'Order {order} already finalized')
-            return falcon.HTTP_400
-        order.certificate_id = b64_encode(os.urandom(128 // 8))
-        data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
-        cert = Certificate(csr=data['csr'],
-                           created=datetime.datetime.now(tz=datetime.timezone.utc),
-                           )
-        self.context.store.save('certificate', order.certificate_id, cert.to_dict())
-        self.context.store.save('order', order.id, order.to_dict())
-        super().on_post(req, resp, order_id)
+        if order.status == 'ready':
+            order.certificate_id = b64_encode(os.urandom(128 // 8))
+            data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+            cert = Certificate(csr=data['csr'],
+                               created=datetime.datetime.now(tz=datetime.timezone.utc),
+                               )
+            order.status = 'processing'
+            self.context.logger.info('Order changed from state ready to processing')
+            self.context.store.save('certificate', order.certificate_id, cert.to_dict())
+            self.context.store.save('order', order.id, order.to_dict())
+            super().on_post(req, resp, order.id)
+        else:
+            # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
+            self.context.logger.error('Not allowed call to finalize, order not in ready state')
+            resp.status = falcon.HTTP_403
 
 
 class AuthorizationResource(BaseResource):
@@ -197,7 +195,6 @@ class AuthorizationResource(BaseResource):
             'identifier': authz.identifier,
             'challenges': challenges,
         }
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
 class ChallengeResource(BaseResource):
@@ -209,7 +206,6 @@ class ChallengeResource(BaseResource):
         challenge = self.context.store.load_challenge(id)
         self.context.logger.info(f'Processing challenge {challenge}')
         resp.media = challenge.to_response()
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
 class CertificateResource(BaseResource):
@@ -271,7 +267,6 @@ class NewAccountResource(BaseResource):
             'orders': self.url_for('accounts', account.id, 'orders'),
         }
         resp.set_header('Location', self.url_for('accounts', account.id))
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
         resp.status = falcon.HTTP_201
 
 
@@ -327,7 +322,6 @@ class NewOrderResource(BaseResource):
             'finalize': self.url_for('order', order.id, 'finalize')
         }
         resp.set_header('Location', self.url_for('order', order.id))
-        resp.set_header('Replay-Nonce', self.context.new_nonce)
         resp.status = falcon.HTTP_201
 
 
@@ -359,7 +353,7 @@ class FakeAuthResource(BaseResource):
 
 store = Store('data')
 context = Context(store)
-api = falcon.API(middleware=[HandleJOSE(context)])
+api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
 
 context.logger.info('Starting api')
 api.req_options.media_handlers['application/jose+json'] = api.req_options.media_handlers['application/json']
