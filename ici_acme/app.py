@@ -176,10 +176,14 @@ class CertificateResource(BaseResource):
     Representing issued certificates
     """
 
-    def on_post(self, req: Request, resp: Response):
-        if not req.media:
-            # POST as GET, order's certificate url
-            pass
+    def on_post(self, req: Request, resp: Response, id):
+        certificate = self.context.store.load_certificate(id)
+        self.context.logger.info(f'Processing certificate {certificate}')
+        if not certificate.certificate:
+            resp.status = falcon.HTTP_404
+            return
+        resp.set_header('Content-Type', 'application/pem-certificate-chain')
+        resp.media = certificate.certificate
 
 
 class DirectoryResource(BaseResource):
@@ -233,7 +237,7 @@ class NewAccountResource(BaseResource):
 class NewOrderResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        self.context.logger.info(f'NEW ORDER')
+        self.context.logger.info(f'Creating a new order for account {req.context["account"].id}')
         # Decode the clients order, e.g.
         #  {"identifiers": [{"type": "dns", "value": "test.test"}]}
         acme_request = json.loads(req.context['jose_verified_data'].decode('utf-8'))
@@ -328,4 +332,5 @@ api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))
 api.add_route('/order', OrderListResource(context=context))
 api.add_route('/order/{order_id}', OrderResource(context=context))
 api.add_route('/order/{order_id}/finalize', FinalizeOrderResource(context=context))
-
+#
+api.add_route('/certificate/{id}', CertificateResource(context=context))

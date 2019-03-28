@@ -41,7 +41,8 @@ class HandleJOSE(object):
                 req.context['account'] = account
                 protected = json.loads(b64_decode(account.jwk_data))
                 jwk = protected['jwk']
-            ret = jws.verify(token, jwk, algorithms='RS256')  # TODO
+            ret = jws.verify(token, jwk, algorithms='RS256')  # TODO - support other algorithms
+            # TODO: verify the nonce
             self.context.logger.info(f'Verified data: {ret}')
             req.context['jose_verified_data'] = ret
             req.context['jose_unverified_data'] = data
