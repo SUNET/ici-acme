@@ -2,6 +2,9 @@
 
 import base64
 
+from typing import AnyStr
+
+
 __author__ = 'lundberg'
 
 
@@ -33,5 +36,11 @@ def urlappend(base: str, path: str) -> str:
     return '{!s}{!s}'.format(base, path)
 
 
-def b64_urlsafe(b: bytes) -> str:
+def b64_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode('utf-8').strip('=')
+
+def b64_decode(data: AnyStr) -> str:
+    if not isinstance(data, bytes):
+        data = data.encode('utf-8')
+    data += b'=' * (len(data) % 4)
+    return base64.urlsafe_b64decode(data)

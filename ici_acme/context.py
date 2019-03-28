@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Optional, Mapping
 
 from ici_acme.store import Account, Store
-from ici_acme.utils import b64_urlsafe, urlappend
+from ici_acme.utils import b64_encode, urlappend
 
 
 class Context(object):
@@ -28,7 +28,7 @@ class Context(object):
 
     @property
     def new_nonce(self) -> str:
-        nonce = b64_urlsafe(os.urandom(128 // 8))
+        nonce = b64_encode(os.urandom(128 // 8))
         self._nonces[nonce] = True
         return nonce
 

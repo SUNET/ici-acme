@@ -10,7 +10,7 @@ from falcon import Request, Response
 from ici_acme.context import Context
 from ici_acme.store import Store, Account, Order, Authorization, Challenge
 from ici_acme.middleware import HandleJOSE
-from ici_acme.utils import b64_urlsafe, urlappend
+from ici_acme.utils import b64_encode, urlappend
 
 __author__ = 'lundberg'
 
@@ -228,7 +228,7 @@ class NewOrderResource(BaseResource):
         authorizations = []
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         for ident in acme_request['identifiers']:
-            challenge_id = b64_urlsafe(os.urandom(128 // 8))
+            challenge_id = b64_encode(os.urandom(128 // 8))
             chall = Challenge(id=challenge_id,
                               type='x-sunet-01',
                               url=self.url_for('challenge', challenge_id),
@@ -240,7 +240,7 @@ class NewOrderResource(BaseResource):
                               token=challenge_id,
                               )
             self.context.store.save('challenge', chall.id, chall.to_dict())
-            authz = Authorization(id=b64_urlsafe(os.urandom(128 // 8)),
+            authz = Authorization(id=b64_encode(os.urandom(128 // 8)),
                                   status='pending',
                                   created=now,
                                   expires=now + datetime.timedelta(minutes=5),
@@ -250,7 +250,7 @@ class NewOrderResource(BaseResource):
             self.context.store.save('authorization', authz.id, authz.to_dict())
             authorizations += [authz]
 
-        order = Order(id=b64_urlsafe(os.urandom(128 // 8)),
+        order = Order(id=b64_encode(os.urandom(128 // 8)),
                       created=datetime.datetime.now(tz=datetime.timezone.utc),
                       identifiers=acme_request['identifiers'],
                       authorization_ids=[x.id for x in authorizations],

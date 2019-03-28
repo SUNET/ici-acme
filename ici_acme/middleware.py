@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-import base64
 from jose import jws
 import json
 from falcon import Request, Response, HTTPForbidden
 from ici_acme.context import Context
+from ici_acme.utils import b64_decode
 
 __author__ = 'lundberg'
 
@@ -26,7 +26,7 @@ class HandleJOSE(object):
             self.context.logger.info(f'CLAIMS: {jws.get_unverified_claims(token)}')
 
             if req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
-                protected = json.loads(base64.b64decode(data['protected']))
+                protected = json.loads(b64_decode(data['protected']))
                 jwk = protected['jwk']
                 assert protected['alg'] == 'RS256'  # TODO
                 req.context['account_creation'] = True
@@ -39,7 +39,7 @@ class HandleJOSE(object):
                     raise HTTPForbidden('Account not found')
                 self.context.logger.info(f'Authenticating request for account {account}')
                 req.context['account'] = account
-                protected = json.loads(base64.b64decode(account.jwk_data))
+                protected = json.loads(b64_decode(account.jwk_data))
                 jwk = protected['jwk']
             ret = jws.verify(token, jwk, algorithms='RS256')  # TODO
             self.context.logger.info(f'Verified data: {ret}')
