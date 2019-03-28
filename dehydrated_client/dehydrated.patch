@@ -1,5 +1,5 @@
---- /home/ft/work/thulin.net/multiverse/fe1.thulin.net/overlay/usr/sbin/dehydrated	2019-03-27 15:30:47.620926659 +0100
-+++ dehydrated	2019-03-27 14:14:52.462841891 +0100
+--- /usr/sbin/dehydrated	2019-03-27 15:30:47.620926659 +0100
++++ dehydrated_client/dehydrated	2019-03-28 11:16:22.582645951 +0100
 @@ -94,7 +94,7 @@
  
  # verify configuration values
@@ -9,7 +9,42 @@
    if [[ "${CHALLENGETYPE}" = "dns-01" ]] && [[ -z "${HOOK}" ]]; then
      _exiterr "Challenge type dns-01 needs a hook script for deployment... cannot continue."
    fi
-@@ -747,10 +747,14 @@
+@@ -516,13 +516,21 @@
+ 
+   set +e
+   if [[ "${1}" = "head" ]]; then
++      echo "HTTP_REQUEST: HEAD -> '${2}'" > /dev/stderr
++      echo "" > /dev/stderr
+     statuscode="$(curl ${ip_version:-} ${CURL_OPTS} -A "dehydrated/${VERSION} curl/${CURL_VERSION}" -s -w "%{http_code}" -o "${tempcont}" "${2}" -I)"
+     touch "${tempheaders}"
+     curlret="${?}"
+   elif [[ "${1}" = "get" ]]; then
++    echo "HTTP_REQUEST: GET -> '${2}'" > /dev/stderr
++    echo "" > /dev/stderr
++    echo "-- end get" > /dev/stderr
+     statuscode="$(curl ${ip_version:-} ${CURL_OPTS} -A "dehydrated/${VERSION} curl/${CURL_VERSION}" -L -s -w "%{http_code}" -o "${tempcont}" -D "${tempheaders}" "${2}")"
+     curlret="${?}"
+   elif [[ "${1}" = "post" ]]; then
++    echo "HTTP_REQUEST: POST -> '${2}'" > /dev/stderr
++      echo "" > /dev/stderr
++      echo "-- end post" > /dev/stderr
+     statuscode="$(curl ${ip_version:-} ${CURL_OPTS} -A "dehydrated/${VERSION} curl/${CURL_VERSION}" -s -w "%{http_code}" -o "${tempcont}" "${2}" -D "${tempheaders}" -H 'Content-Type: application/jose+json' -d "${3}")"
+     curlret="${?}"
+   else
+@@ -531,6 +539,12 @@
+   fi
+   set -e
+ 
++  echo "HTTP RESPONSE:" > /dev/stderr
++  cat ${tempcont} > /dev/stderr
++  echo "" > /dev/stderr
++  echo "-- end response" > /dev/stderr
++  echo "" > /dev/stderr
++
+   if [[ ! "${curlret}" = "0" ]]; then
+     _exiterr "Problem connecting to server (${1} for ${2}; curl returned with ${curlret})"
+   fi
+@@ -747,10 +761,14 @@
      # Prepare challenge tokens and deployment parameters
      keyauth="${challenge_tokens[${idx}]}.${thumbprint}"
  
@@ -25,7 +60,7 @@
          chmod a+r "${WELLKNOWN}/${challenge_tokens[${idx}]}"
          keyauth_hook="${keyauth}"
          ;;
-@@ -762,6 +766,10 @@
+@@ -762,6 +780,10 @@
          keyauth_hook="$(printf '%s' "${keyauth}" | "${OPENSSL}" dgst -sha256 -c -hex | awk '{print $2}')"
          generate_alpn_certificate "${identifier}" "${keyauth_hook}"
          ;;
