@@ -27,7 +27,7 @@ class Order(object):
     created: datetime
     identifiers: dict
     authorization_ids: List[str]
-    status: str
+    status: str  # invalid, pending, ready, processing, valid
     expires: Optional[datetime] = None
     certificate_id: Optional[str] = None
 

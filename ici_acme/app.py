@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import random
 
 import falcon
 
@@ -68,31 +69,75 @@ class OrderResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response, order_id: str):
         order = self.context.store.load_order(order_id)
-        req.context['order'] = order
         self.context.logger.info(f'Processing order {order}')
         resp.set_header('Replay-Nonce', self.context.new_nonce)
+        _old_status = order.status
+        # States described in RFC8555 section 7.4
+        if order.status == 'invalid':
+            pass
+        if order.status == 'pending':
+            # check if any authorizations are now valid, in which case the order should
+            # proceed to 'ready'
+            for authz_id in order.authorization_ids:
+                auth = self.context.store.load_authorization(authz_id)
+                if auth.status == 'pending':
+                    # check if authorization has now completed
+                    for chall_id in auth.challenge_ids:
+                        challenge = self.context.store.load_challenge(chall_id)
+                        if challenge.status == 'valid':
+                            auth.status = 'valid'
+                            self.context.store.save('authorization', auth.id, auth.to_dict())
+                if auth.status == 'valid':
+                    order.status = 'ready'
+                    break
+                self.context.logger.info(f'Authorization {auth} still not valid')
+        if order.status == 'ready':
+            if order.certificate_id is not None:
+                # a finalize request has been issued
+                order.status = 'processing'
+        if order.status == 'processing':
+            cert = self.context.store.load_certificate(order.certificate_id)
+            if cert.certificate is None:
+                # certificate still not issued
+                resp.set_header('Retry-After', 30 + random.randint(-5, 5))
+            else:
+                order.status = 'valid'
+
+        if order.status != _old_status:
+            self.context.logger.info(f'Order changed from state {_old_status} to {order.status}')
+            self.context.store.save('order', order.id, order.to_dict())
+        else:
+            self.context.logger.info(f'Order remained in state {order.status}')
+
         data = {
             'status': order.status,
             'identifiers': order.identifiers,
             #'notBefore': '2016-01-01T00:00:00Z',  # optional
             #'notAfter': '2016-01-08T00:00:00Z',  # optional
             'authorizations': [self.url_for('authz', authz_id) for authz_id in order.authorization_ids],
-            'finalize': self.url_for('order', order.id, 'finalize'),
-            #'certificate': 'https://example.com/acme/cert/mAt3xBGaobw'  # optional
         }
 
-        if order.status in ['pending', 'valid']:
+        if order.status == 'ready':
+            data['finalize'] = self.url_for('order', order.id, 'finalize')
+
+        if order.status == 'valid':
+            data['certificate'] = self.url_for('certificate', order.certificate_id)
+
+        if order.status in ['pending', 'valid']:  # XXX more states than these perhaps?
             data['expires'] = str(order.expires)
 
         resp.media = data
+        resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
 class FinalizeOrderResource(OrderResource):
 
     def on_post(self, req: Request, resp: Response, order_id: str):
-        super().on_post(req, resp, order_id)
-        order = req.context['order']
+        order = self.context.store.load_order(order_id)
         self.context.logger.info(f'Finalizing order {order}')
+        if order.certificate_id is not None:
+            self.context.logger.error(f'Order {order} already finalized')
+            return falcon.HTTP_400
         order.certificate_id = b64_encode(os.urandom(128 // 8))
         data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
         cert = Certificate(csr=data['csr'],
@@ -100,12 +145,7 @@ class FinalizeOrderResource(OrderResource):
                            )
         self.context.store.save('certificate', order.certificate_id, cert.to_dict())
         self.context.store.save('order', order.id, order.to_dict())
-        # resp.media is not an ordinary dict, need to copy it before modifying it
-        data = resp.media
-        data['certificate'] = self.url_for('certificate', order.certificate_id)
-        data.pop('finalize', None)
-        # resp.media has a funny setter, which is why we need to set it all in once
-        resp.media = data
+        super().on_post(req, resp, order_id)
 
 
 class AuthorizationResource(BaseResource):
@@ -169,6 +209,7 @@ class ChallengeResource(BaseResource):
         challenge = self.context.store.load_challenge(id)
         self.context.logger.info(f'Processing challenge {challenge}')
         resp.media = challenge.to_response()
+        resp.set_header('Replay-Nonce', self.context.new_nonce)
 
 
 class CertificateResource(BaseResource):
@@ -287,6 +328,7 @@ class NewOrderResource(BaseResource):
         }
         resp.set_header('Location', self.url_for('order', order.id))
         resp.set_header('Replay-Nonce', self.context.new_nonce)
+        resp.status = falcon.HTTP_201
 
 
 class RevokeCertResource(BaseResource):
