@@ -8,7 +8,7 @@ import datetime
 
 from falcon import Request, Response
 from ici_acme.context import Context
-from ici_acme.store import Store, Account, Order, Authorization, Challenge
+from ici_acme.store import Store, Account, Order, Authorization, Challenge, Certificate
 from ici_acme.middleware import HandleJOSE
 from ici_acme.utils import b64_encode, urlappend
 
@@ -93,6 +93,19 @@ class FinalizeOrderResource(OrderResource):
         super().on_post(req, resp, order_id)
         order = req.context['order']
         self.context.logger.info(f'Finalizing order {order}')
+        order.certificate_id = b64_encode(os.urandom(128 // 8))
+        data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+        cert = Certificate(csr=data['csr'],
+                           created=datetime.datetime.now(tz=datetime.timezone.utc),
+                           )
+        self.context.store.save('certificate', order.certificate_id, cert.to_dict())
+        self.context.store.save('order', order.id, order.to_dict())
+        # resp.media is not an ordinary dict, need to copy it before modifying it
+        data = resp.media
+        data['certificate'] = self.url_for('certificate', order.certificate_id)
+        data.pop('finalize', None)
+        # resp.media has a funny setter, which is why we need to set it all in once
+        resp.media = data
 
 
 class AuthorizationResource(BaseResource):
@@ -255,6 +268,7 @@ class NewOrderResource(BaseResource):
                       identifiers=acme_request['identifiers'],
                       authorization_ids=[x.id for x in authorizations],
                       status='pending',
+                      expires=now + datetime.timedelta(minutes=30),
                       )
         account = req.context['account']
         account.last_order = datetime.datetime.now(tz=datetime.timezone.utc)

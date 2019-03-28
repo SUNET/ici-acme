@@ -9,7 +9,7 @@ from typing import Mapping, Union, List, Optional, Any
 @dataclass()
 class Account(object):
     id: str
-    jwk_data: Mapping = field(repr=False)
+    jwk_data: str = field(repr=False)
     last_order: Optional[datetime] = None
     order_ids: List[str] = field(default_factory=lambda: [])
 
@@ -29,6 +29,7 @@ class Order(object):
     authorization_ids: List[str]
     status: str
     expires: Optional[datetime] = None
+    certificate_id: Optional[str] = None
 
 
     def to_dict(self):
@@ -90,6 +91,21 @@ class Challenge(object):
         return data
 
 
+@dataclass()
+class Certificate(object):
+    csr: str
+    created: datetime
+    certificate: Optional[str] = None
+    expires: Optional[datetime] = None  # set when certificate is added
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
+
 class Store(object):
 
     def __init__(self, datadir: str):
@@ -126,6 +142,10 @@ class Store(object):
     def load_challenge(self, name) -> Challenge:
         data = self.load('challenge', name)
         return Challenge.from_dict(data)
+
+    def load_certificate(self, name) -> Certificate:
+        data = self.load('certificate', name)
+        return Certificate.from_dict(data)
 
     def delete(self, type_: str, name: str) -> bool:
         fn = self._get_filename(type_, name)

@@ -39,7 +39,7 @@ class Context(object):
             return urlappend(base_url, self.application_root)
         return base_url
 
-    def new_account(self, jwk_data: Mapping) -> Account:
+    def new_account(self, jwk_data: str) -> Account:
         # Use an integer account_id to be compatible with LetsEncrypt pre-RFC8555 'id' parameter
         id = str(int(time.time()))  # TODO: make sure there is no account with this ID already
         account = Account(id=id, jwk_data=jwk_data)
