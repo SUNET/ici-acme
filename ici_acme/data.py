@@ -4,11 +4,7 @@ from typing import Optional, List, Any, Mapping
 
 
 @dataclass()
-class Account(object):
-    id: str
-    jwk_data: str = field(repr=False)
-    last_order: Optional[datetime] = None
-    order_ids: List[str] = field(default_factory=lambda: [])
+class StoreObject(object):
 
     def to_dict(self):
         return asdict(self)
@@ -19,7 +15,15 @@ class Account(object):
 
 
 @dataclass()
-class Order(object):
+class Account(StoreObject):
+    id: str
+    jwk_data: str = field(repr=False)
+    last_order: Optional[datetime] = None
+    order_ids: List[str] = field(default_factory=lambda: [])
+
+
+@dataclass()
+class Order(StoreObject):
     id: str
     created: datetime
     identifiers: dict
@@ -28,7 +32,6 @@ class Order(object):
     expires: Optional[datetime] = None
     certificate_id: Optional[str] = None
 
-
     def to_dict(self):
         return asdict(self)
 
@@ -36,9 +39,8 @@ class Order(object):
     def from_dict(cls, data):
         return cls(**data)
 
-
 @dataclass()
-class Authorization(object):
+class Authorization(StoreObject):
     id: str
     status: str   # pending, valid, invalid (valid means completed)
     created: datetime
@@ -46,16 +48,9 @@ class Authorization(object):
     identifier: dict
     challenge_ids: List[str]
 
-    def to_dict(self):
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data)
-
 
 @dataclass()
-class Challenge(object):
+class Challenge(StoreObject):
     id: str
     type: str
     url: str
@@ -65,13 +60,6 @@ class Challenge(object):
     error: Optional[Any] = None  # when this is set, status MUST be 'invalid'
     # token is for http-01
     token: Optional[str] = None
-
-    def to_dict(self):
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data)
 
     def to_response(self) -> Mapping:
         data = {
@@ -89,15 +77,8 @@ class Challenge(object):
 
 
 @dataclass()
-class Certificate(object):
+class Certificate(StoreObject):
     csr: str
     created: datetime
     certificate: Optional[str] = None
     expires: Optional[datetime] = None  # set when certificate is added
-
-    def to_dict(self):
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data)
