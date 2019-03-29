@@ -14,6 +14,7 @@ class Store(object):
     def save(self, type_: str, name: str, data: Mapping) -> None:
         fn = self._get_filename(type_, name)
         _tmpfile = fn + '.tmp'
+        # TODO: make new file mode 0o600
         with open(_tmpfile, 'w') as fd:
             fd.write(yaml.safe_dump(data, indent=True))
         os.rename(_tmpfile, fn)

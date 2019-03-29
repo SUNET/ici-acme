@@ -149,7 +149,7 @@ class FinalizeOrderResource(OrderResource):
 
         if order.status != 'ready':
             # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
-            self.context.logger.error('Not allowed call to finalize, order not in "ready" state')
+            self.context.logger.error('Not allowed to call finalize, order not in "ready" state')
             resp.status = falcon.HTTP_403
 
         data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
@@ -199,14 +199,6 @@ class AuthorizationResource(BaseResource):
         authz = self.context.store.load_authorization(id)
         self.context.logger.info(f'Processing authorization {authz}')
         challenges = []
-        #{
-        #        'url': f'{self.context.base_url}/challenge',
-        #        'type': 'http-01',
-        #        'status': 'pending',
-        #        'token': 'DGyRejmCefe7v4NfDGDKfA',
-        #        #'validated': '2014-12-01T12:05:58.16Z'
-        #    }
-        #]
         for _id in authz.challenge_ids:
             this = self.context.store.load_challenge(_id)
             challenges += [this.to_response()]
