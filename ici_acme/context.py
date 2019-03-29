@@ -16,7 +16,7 @@ class Context(object):
         self.store = store
         self._nonces: Dict[str, bool] = {}
 
-        self.protocol: str = 'http'
+        self.schema: str = 'http'
         self.server_name: str = 'localhost:8000'
         self.application_root: str = ''
 
@@ -35,7 +35,7 @@ class Context(object):
 
     @property
     def base_url(self) -> str:
-        base_url = f'{self.protocol}://{self.server_name}'
+        base_url = f'{self.schema}://{self.server_name}'
         if self.application_root:
             return urlappend(base_url, self.application_root)
         return base_url

@@ -12,6 +12,7 @@ from falcon import Request, Response
 from ici_acme.context import Context
 from ici_acme.csr import validate
 from ici_acme.store import Store
+from ici_acme import exceptions
 from ici_acme.data import Account, Order, Authorization, Challenge, Certificate
 from ici_acme.middleware import HandleJOSE, HandleReplayNonce
 from ici_acme.utils import b64_encode, urlappend, b64_decode
@@ -149,14 +150,14 @@ class FinalizeOrderResource(OrderResource):
 
         if order.status != 'ready':
             # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
-            self.context.logger.error('Not allowed to call finalize, order not in "ready" state')
-            resp.status = falcon.HTTP_403
+            self.context.logger.error('Not allowed call to finalize, order not in "ready" state')
+            raise falcon.HTTPForbidden
 
         data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
         # PEM format is plain base64 encoded
         csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
         if not validate(csr, order, context):
-            return falcon.HTTPForbidden
+            raise falcon.HTTPForbidden
 
         order.certificate_id = b64_encode(os.urandom(128 // 8))
         cert = Certificate(csr=data['csr'],
@@ -195,10 +196,18 @@ class AuthorizationResource(BaseResource):
     }
 
     """
-    def on_post(self, req: Request, resp: Response, id: str):
-        authz = self.context.store.load_authorization(id)
+    def on_post(self, req: Request, resp: Response, authz_id: str):
+        authz = self.context.store.load_authorization(authz_id)
         self.context.logger.info(f'Processing authorization {authz}')
         challenges = []
+        #{
+        #        'url': f'{self.context.base_url}/challenge',
+        #        'type': 'http-01',
+        #        'status': 'pending',
+        #        'token': 'DGyRejmCefe7v4NfDGDKfA',
+        #        #'validated': '2014-12-01T12:05:58.16Z'
+        #    }
+        #]
         for _id in authz.challenge_ids:
             this = self.context.store.load_challenge(_id)
             challenges += [this.to_response()]
@@ -216,8 +225,8 @@ class ChallengeResource(BaseResource):
     Representing a challenge to prove control of an identifier
     """
 
-    def on_post(self, req: Request, resp: Response, id):
-        challenge = self.context.store.load_challenge(id)
+    def on_post(self, req: Request, resp: Response, challenge_id):
+        challenge = self.context.store.load_challenge(challenge_id)
         self.context.logger.info(f'Processing challenge {challenge}')
         resp.media = challenge.to_response()
 
@@ -227,8 +236,8 @@ class CertificateResource(BaseResource):
     Representing issued certificates
     """
 
-    def on_post(self, req: Request, resp: Response, id):
-        certificate = self.context.store.load_certificate(id)
+    def on_post(self, req: Request, resp: Response, certificate_id):
+        certificate = self.context.store.load_certificate(certificate_id)
         self.context.logger.info(f'Processing certificate {certificate}')
         if not certificate.certificate:
             resp.status = falcon.HTTP_404
@@ -312,7 +321,7 @@ class NewOrderResource(BaseResource):
                                   created=now,
                                   expires=now + datetime.timedelta(minutes=5),
                                   identifier=ident,
-                                  challenge_ids=[challenge_id],
+                                  challenge_ids=[chall.id],
                                   )
             self.context.store.save('authorization', authz.id, authz.to_dict())
             authorizations += [authz]
@@ -367,20 +376,25 @@ class FakeAuthResource(BaseResource):
 
 store = Store('data')
 context = Context(store)
-api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
+context.logger.info('Starting app')
 
-context.logger.info('Starting api')
+api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
 api.req_options.media_handlers['application/jose+json'] = api.req_options.media_handlers['application/json']
+api.add_error_handler(exceptions.HTTPErrorDetail)
+
 api.add_route('/directory', DirectoryResource(context=context))
 api.add_route('/new-nonce', NewNonceResource(context=context))
 api.add_route('/new-account', NewAccountResource(context=context))
 api.add_route('/new-order', NewOrderResource(context=context))
-api.add_route('/authz/{id}', AuthorizationResource(context=context))
-api.add_route('/challenge/{id}', ChallengeResource(context=context))
+api.add_route('/authz/{authz_id}', AuthorizationResource(context=context))
+api.add_route('/challenge/{challenge_id}', ChallengeResource(context=context))
 api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))
 # OrderResource
 api.add_route('/order', OrderListResource(context=context))
 api.add_route('/order/{order_id}', OrderResource(context=context))
 api.add_route('/order/{order_id}/finalize', FinalizeOrderResource(context=context))
-#
-api.add_route('/certificate/{id}', CertificateResource(context=context))
+# CertificateResource
+api.add_route('/certificate/{certificate_id}', CertificateResource(context=context))
+# AccountResource
+api.add_route('/account/{account_id}', AccountResource(context=context))
+context.logger.info('app running..')

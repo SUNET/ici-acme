@@ -2,7 +2,7 @@
 
 import base64
 
-from typing import AnyStr
+from typing import Union, AnyStr, Dict, List
 
 
 __author__ = 'lundberg'
@@ -39,8 +39,21 @@ def urlappend(base: str, path: str) -> str:
 def b64_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode('utf-8').strip('=')
 
+
 def b64_decode(data: AnyStr) -> str:
     if not isinstance(data, bytes):
         data = data.encode('utf-8')
     data += b'=' * (len(data) % 4)
     return base64.urlsafe_b64decode(data)
+
+
+def filter_none(x: Union[Dict, List]) -> Union[Dict, List]:
+    """
+    Recursively removes key, value pairs or items that is None.
+    """
+    if isinstance(x, dict):
+        return {k: filter_none(v) for k, v in x.items() if v is not None}
+    elif isinstance(x, list):
+        return [filter_none(i) for i in x if x is not None]
+    else:
+        return x
