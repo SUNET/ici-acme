@@ -331,11 +331,21 @@ class NewOrderResource(BaseResource):
                       identifiers=acme_request['identifiers'],
                       authorization_ids=[x.id for x in authorizations],
                       status='pending',
-                      expires=now + datetime.timedelta(minutes=30),
+                      expires=now + datetime.timedelta(minutes=3),
                       )
         account = req.context['account']
-        account.last_order = datetime.datetime.now(tz=datetime.timezone.utc)
-        account.order_ids += [order.id]
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        account.last_order = now
+        # remove any expired orders on this account
+        for this in account.order_ids:
+            expires = this['expires'].replace(tzinfo=datetime.timezone.utc)
+            if expires < now:
+                self.context.store.purge_order(this['id'])
+                account.order_ids.remove(this)
+                self.context.logger.info(f'Removed expired order {this["id"]}')
+        account.order_ids += [{'id': order.id,
+                               'expires': order.expires,
+                               }]
         self.context.store.save('order', order.id, order.to_dict())
         self.context.store.save('account', account.id, account.to_dict())
         resp.media = {

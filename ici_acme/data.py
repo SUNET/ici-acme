@@ -19,7 +19,7 @@ class Account(StoreObject):
     id: str
     jwk_data: str = field(repr=False)
     last_order: Optional[datetime] = None
-    order_ids: List[str] = field(default_factory=lambda: [])
+    order_ids: List[dict] = field(default_factory=lambda: [])
 
 
 @dataclass()
