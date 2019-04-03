@@ -6,11 +6,11 @@ from ici_acme import exceptions
 from ici_acme.context import Context
 from ici_acme.store import Store
 from ici_acme.middleware import HandleJOSE, HandleReplayNonce
-from ici_acme.views.account import AccountResource, NewAccountResource
-from ici_acme.views.misc import AuthorizationResource, ChallengeResource, CertificateResource, DirectoryResource
-from ici_acme.views.misc import NewNonceResource
-from ici_acme.views.order import OrderListResource, OrderResource, FinalizeOrderResource, NewOrderResource
-from ici_acme.views.preauth import FakeAuthResource, PreAuthResource
+from ici_acme.resources.account import AccountResource, NewAccountResource
+from ici_acme.resources.misc import AuthorizationResource, ChallengeResource, CertificateResource, DirectoryResource
+from ici_acme.resources.misc import NewNonceResource
+from ici_acme.resources.order import OrderListResource, OrderResource, FinalizeOrderResource, NewOrderResource
+from ici_acme.resources.preauth import FakeAuthResource, PreAuthResource
 
 __author__ = 'lundberg'
 
