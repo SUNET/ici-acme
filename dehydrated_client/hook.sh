@@ -24,7 +24,7 @@ deploy_challenge() {
     # printf 'server 127.0.0.1\nupdate add _acme-challenge.%s 300 IN TXT "%s"\nsend\n' "${DOMAIN}" "${TOKEN_VALUE}" | nsupdate -k /var/run/named/session.key
 
     echo "IN HOOK deploy_challenge DOMAIN $DOMAIN FILENAME $TOKEN_FILENAME VALUE $TOKEN_VALUE"
-    curl -v "http://localhost:8000/fakeauth/${TOKEN_VALUE}"
+    #curl -v "http://localhost:8000/fakeauth/${TOKEN_VALUE}"
 }
 
 HANDLER="$1"; shift

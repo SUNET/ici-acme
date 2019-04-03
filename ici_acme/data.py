@@ -20,6 +20,7 @@ class Account(StoreObject):
     jwk_data: str = field(repr=False)
     last_order: Optional[datetime] = None
     order_ids: List[dict] = field(default_factory=lambda: [])
+    preauth_ids: List[dict] = field(default_factory=lambda: [])
 
 
 @dataclass()

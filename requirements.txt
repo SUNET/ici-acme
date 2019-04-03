@@ -4,3 +4,4 @@ PyYAML==5.1
 gunicorn==19.9.0
 cryptography
 inotify>=0.2.10
+requests

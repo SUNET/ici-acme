@@ -7,7 +7,6 @@ import random
 import falcon
 from falcon import Request, Response
 
-from ici_acme.app import context
 from ici_acme.base import BaseResource
 from ici_acme.csr import validate
 from ici_acme.data import Account, Order, Certificate, Challenge, Authorization
@@ -115,7 +114,7 @@ class FinalizeOrderResource(OrderResource):
         data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
         # PEM format is plain base64 encoded
         csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
-        if not validate(csr, order, context):
+        if not validate(csr, order, self.context):
             raise falcon.HTTPForbidden
 
         order.certificate_id = b64_encode(os.urandom(128 // 8))
@@ -178,6 +177,13 @@ class NewOrderResource(BaseResource):
                 self.context.store.purge_order(this['id'])
                 account.order_ids.remove(this)
                 self.context.logger.info(f'Removed expired order {this["id"]}')
+        # remove any expired preauths on this account
+        for this in account.preauth_ids:
+            expires = this['expires'].replace(tzinfo=datetime.timezone.utc)
+            if expires < now:
+                self.context.store.delete('authorization', this['id'])
+                account.preauth_ids.remove(this)
+                self.context.logger.info(f'Removed expired pre-auth {this["id"]}')
         account.order_ids += [{'id': order.id,
                                'expires': order.expires,
                                }]
