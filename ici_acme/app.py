@@ -160,7 +160,7 @@ class FinalizeOrderResource(OrderResource):
             raise falcon.HTTPForbidden
 
         order.certificate_id = b64_encode(os.urandom(128 // 8))
-        cert = Certificate(csr=data['csr'],
+        cert = Certificate(csr=csr,
                            created=datetime.datetime.now(tz=datetime.timezone.utc),
                            )
         self.context.store.save('certificate', order.certificate_id, cert.to_dict())
@@ -243,7 +243,7 @@ class CertificateResource(BaseResource):
             resp.status = falcon.HTTP_404
             return
         resp.set_header('Content-Type', 'application/pem-certificate-chain')
-        resp.media = certificate.certificate
+        resp.body = certificate.certificate
 
 
 class DirectoryResource(BaseResource):
