@@ -16,7 +16,7 @@ from ici_acme.utils import b64_decode, b64_encode
 class OrderListResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
-        self.context.logger.info(f'Processing orderlist')
+        self.context.logger.info(f'Processing order list')
         account = req.context['account']
         assert isinstance(account, Account)
         resp.media = {
@@ -88,7 +88,10 @@ class OrderResource(BaseResource):
 
         if order.status == 'processing':
             cert = self.context.store.load_certificate(order.certificate_id)
-            if cert.certificate is not None:
+            if cert.certificate is None:
+                self.context.logger.debug(f'Certificate {order.certificate_id} not completed')
+            else:
+                self.context.logger.debug(f'Certificate {order.certificate_id} is now completed')
                 order.status = 'valid'
 
         if order.status != _old_status:
