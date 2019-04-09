@@ -78,6 +78,31 @@ def dehydrated_account_sign(data: dict, args: argparse.Namespace, logger: loggin
     return token
 
 
+#_ALG = 'P11TOKEN'
+_ALG = 'RS256'
+
+
+
+def iciclient_sign(data, key=None, headers=None):
+    orig_key = jwk.get_key(_ALG)
+    try:
+        jwk.register_key(_ALG, P11Key)
+        res = jws.sign(data, key, algorithm=_ALG, headers=headers)
+    except:
+        raise
+    finally:
+        jwk.register_key(_ALG, orig_key)
+    return res
+
+def iciclient_verify(token, pem):
+    #key = jwk.construct(pem, jwk.ALGORITHMS.RS256)
+    key = pem
+    return jws.verify(token, key, algorithms=[jwk.ALGORITHMS.RS256])
+
+
+
+
+
 def main(args: argparse.Namespace, logger: logging.Logger):
     #with open(args.certfile, 'rb') as fd:
     #    pem = fd.read()
@@ -86,13 +111,19 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     # Pass x5c" (X.509 Certificate Chain) Header Parameter
 
     #certificate = crypto.load_certificate(crypto.FILETYPE_PEM, pem)
-    #headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')]}
+    #x5c = b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')
     #signed = iciclient.sign({'csr': args.csr}, args.pubkey_id, headers=headers)
     #logger.debug('JWS: {}'.format(signed))
-    data = {'identifier': [{'type': 'dns',
-                            'value': 'test.test',
-                            }],
-            }
+
+    identifers = [{'type': 'dns',
+                   'value': 'test.test',
+                   }]
+    #data = {'v': 1,
+    #        'x5c': x5c,
+    #        'signature': identifiers_sig,
+    #        'data': identifers,
+    #        }
+    data = {'identifers': identifers}
 
     signed = dehydrated_account_sign(data, args, logger)
     logger.debug(f'Signed data: {signed}')
