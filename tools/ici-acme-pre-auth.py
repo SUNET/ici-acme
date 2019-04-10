@@ -136,12 +136,12 @@ def load_pem(path: str):
         sys.exit(1)
 
 
-def dehydrated_account_sign(data: str, dehydrated_account_dir: str, logger: logging.Logger):
+def dehydrated_account_sign(data: dict, dehydrated_account_dir: str):
     key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
     with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
         reg_info = json.loads(fd.read())
     headers = {'kid': str(reg_info['id'])}
-    token = jws.sign(data.encode('utf-8'), key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
+    token = jwt.encode(data, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
     return token
 
 
@@ -152,15 +152,16 @@ def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str
         openssl_crypto.FILETYPE_ASN1, existing_certificate)).decode('utf-8')
 
     headers = {'x5c': [certificate]}
-    data = {'exp': str(datetime.datetime.utcnow() + datetime.timedelta(seconds=300))}
+    payload = {'exp': str(datetime.datetime.utcnow() + datetime.timedelta(seconds=300))}
 
     key = load_private_key(existing_key_path)
-    return jwt.encode(data, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
+    data = {'renew': jwt.encode(payload, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)}
+    return data
 
 
-def post_pre_auth(dehydrated_path: str, url: str, data: str):
+def post_pre_auth(dehydrated_path: str, url: str, data: dict):
 
-    signed = dehydrated_account_sign(data, dehydrated_path, logger)
+    signed = dehydrated_account_sign(data, dehydrated_path)
     logger.debug(f'Signed data: {signed}')
 
     _elem = signed.split('.')
