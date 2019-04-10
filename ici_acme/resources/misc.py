@@ -79,6 +79,7 @@ class CertificateResource(BaseResource):
             return
         resp.set_header('Content-Type', 'application/pem-certificate-chain')
         resp.body = certificate.certificate
+        # TODO: add CA certificate after the issued certificate
 
 
 class DirectoryResource(BaseResource):

@@ -17,7 +17,7 @@ from OpenSSL import crypto as openssl_crypto
 import jose
 import jose.constants
 from jose import jwt, jwk, jws
-
+from jose.backends.cryptography_backend import CryptographyECKey
 
 logger = logging.getLogger()
 
@@ -98,28 +98,15 @@ def _config_logger(args: argparse.Namespace, progname: str):
         logger.addHandler(syslog_h)
 
 
-def iciclient_sign(data, key=None, headers=None):
-    orig_key = jwk.get_key(_ALG)
-    try:
-        jwk.register_key(_ALG, P11Key)
-        res = jws.sign(data, key, algorithm=_ALG, headers=headers)
-    except:
-        raise
-    finally:
-        jwk.register_key(_ALG, orig_key)
-    return res
-
-
-def iciclient_verify(token, pem):
-    # key = jwk.construct(pem, jwk.ALGORITHMS.RS256)
-    key = pem
-    return jws.verify(token, key, algorithms=[jwk.ALGORITHMS.RS256])
-
-
 def load_private_key(path: str):
     try:
         with open(path, 'r') as fd:
-            return jwk.construct(fd.read(), jose.constants.ALGORITHMS.RS256)
+            pem = fd.read(1024 * 1024)
+            if 'BEGIN EC' in pem:
+                # TODO: need to parse the key to see if it is ES256 or some other curve
+                return jwk.construct(pem, jose.constants.ALGORITHMS.ES256)
+            else:
+                return jwk.construct(pem, jose.constants.ALGORITHMS.RS256)
     except TypeError as e:
         logger.error(f'Could not load key from {path}')
         logger.error(e)
@@ -136,27 +123,35 @@ def load_pem(path: str):
         sys.exit(1)
 
 
-def dehydrated_account_sign(data: dict, dehydrated_account_dir: str):
+def dehydrated_account_sign(data: str, dehydrated_account_dir: str) -> str:
     key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
     with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
         reg_info = json.loads(fd.read())
     headers = {'kid': str(reg_info['id'])}
-    token = jwt.encode(data, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
+    # because of bugs in the jose implementation in used, we must wrap the token in a Mapping
+    # and use jwt.encode instead of just calling jws.sign(data, ...)
+    token = jwt.encode({'token': data}, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
     return token
 
 
-def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str):
+def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str) -> str:
 
     existing_certificate = load_pem(existing_certificate_path)
     certificate = b64encode(openssl_crypto.dump_certificate(
         openssl_crypto.FILETYPE_ASN1, existing_certificate)).decode('utf-8')
 
-    headers = {'x5c': [certificate]}
-    payload = {'exp': str(datetime.datetime.utcnow() + datetime.timedelta(seconds=300))}
+    headers = {'x5c': [certificate],  # chain, one cert per element
+               'crit': ['exp'],
+               }
 
     key = load_private_key(existing_key_path)
-    data = {'renew': jwt.encode(payload, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)}
-    return data
+    _key = key.to_dict()
+
+    claims = {'renew': True,
+              'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=300),
+              }
+    token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
+    return token
 
 
 def post_pre_auth(dehydrated_path: str, url: str, data: dict):

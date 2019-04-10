@@ -1,6 +1,7 @@
 """ Test validation of certs - not exactly parts of ici-acme, but... """
 import unittest
 
+from ici_acme.policy.x509 import get_cert_info
 from ici_acme.utils import b64_decode
 
 from OpenSSL import crypto
@@ -111,3 +112,8 @@ class Test_Validation(unittest.TestCase):
 
         res = crypto.verify(client_cert, signature, message, 'sha256')
         self.assertIsNone(res)
+
+    def test_get_cert_info(self):
+        info = get_cert_info(VALID_CLIENT_CERT)
+        self.assertEqual(info.names, {'test.test'})
+        self.assertEqual(info.key_usage, {'TLS Web Server Authentication'})
