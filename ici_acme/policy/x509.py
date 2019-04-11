@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Set
 
 from OpenSSL import crypto
-from OpenSSL.crypto import X509Name
 
 
 logger = logging.getLogger(__name__)
@@ -63,9 +62,11 @@ def get_cert_info(cert_data: bytes, der_encoded=False) -> CertInfo:
         ext = cert.get_extension(i)
         #print(f'{ext.get_short_name()} == {str(ext)}')
         if ext.get_short_name() == b'subjectAltName':
-            data = ext.get_data()
-            assert isinstance(data, X509Name)
-            names.add(str(ext))
+            for san in str(ext).split(','):
+                san = san.strip()
+                if san.startswith('DNS:'):
+                    san = san[4:]
+                names.add(san)
         elif ext.get_short_name() == b'extendedKeyUsage':
             key_usage.add(str(ext))
 

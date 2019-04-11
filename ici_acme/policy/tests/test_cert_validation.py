@@ -74,6 +74,24 @@ RgIhAO0zBolnp0C5F+UG8saBdcCkaiD1VKo5pabpKde6zxL7AiEA4kIZP2JjJz83
 -----END CERTIFICATE-----
 """
 
+VALID_CLIENT_CERT_SAN = b"""-----BEGIN CERTIFICATE-----
+MIICeDCCAh6gAwIBAgIJAOnGRddxOQu3MAoGCCqGSM49BAMCMCIxEzARBgNVBAMM
+Ck15IFJvb3QgQ0ExCzAJBgNVBAYTAlNFMCAXDTE5MDQxMTA5Mjk0MVoYDzIxMTkw
+MzE4MDkyOTQxWjAUMRIwEAYDVQQDDAl0ZXN0LnRlc3QwWTATBgcqhkjOPQIBBggq
+hkjOPQMBBwNCAAQmc6ysG+62Jwqq1UbN7R30KLkdW9QWvp8CcZzQOnYOwtSdEbbm
+vE8zJ7FSc4zbLp9Z2ZjwQKQWh0KF1Z7c8H0so4IBRzCCAUMwHQYDVR0OBBYEFCsz
+lVpYxzJUpTiKB9g3Bj+HTy6eMB8GA1UdIwQYMBaAFGM6XJ4iMFN1Q4fk5cc0pn6k
+Hq4IMF0GCCsGAQUFBwEBBFEwTzAoBggrBgEFBQcwAoYcaHR0cDovL2NhLmV4YW1w
+bGUuY29tL2NhLmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3AuZXhhbXBsZS5j
+b20wLgYDVR0fBCcwJTAjoCGgH4YdaHR0cDovL2NhLmV4YW1wbGUuY29tL2NybC5w
+ZW0wIAYDVR0SBBkwF4YVaHR0cDovL2NhLmV4YW1wbGUuY29tMCMGA1UdEQQcMBqC
+CXRlc3QudGVzdIINdGVzdC1zYW4udGVzdDAJBgNVHRMEAjAAMAsGA1UdDwQEAwIF
+4DATBgNVHSUEDDAKBggrBgEFBQcDATAKBggqhkjOPQQDAgNIADBFAiEA1xW0dpxm
+BNlmXNUIqXp2hR1oz9W++NF286sTG/NYVrsCIEiW+aXN6HwwhjKxqN7S3HwamAFR
+n7EtQKNJGBT0MB2s
+-----END CERTIFICATE-----
+"""
+
 class Test_Validation(unittest.TestCase):
 
     def test_cert_validate_valid(self):
@@ -116,4 +134,9 @@ class Test_Validation(unittest.TestCase):
     def test_get_cert_info(self):
         info = get_cert_info(VALID_CLIENT_CERT)
         self.assertEqual(info.names, {'test.test'})
+        self.assertEqual(info.key_usage, {'TLS Web Server Authentication'})
+
+    def test_get_cert_info_with_san(self):
+        info = get_cert_info(VALID_CLIENT_CERT_SAN)
+        self.assertEqual(info.names, {'test.test', 'test-san.test'})
         self.assertEqual(info.key_usage, {'TLS Web Server Authentication'})
