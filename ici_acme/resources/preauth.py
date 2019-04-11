@@ -55,10 +55,11 @@ class PreAuthResource(BaseResource):
         first_cert = base64.b64decode(_headers['x5c'][0])
         pubkey = get_public_key(first_cert)
 
-        claims = jose.jwt.decode(token, pubkey, algorithms=[jwk.ALGORITHMS.RS256,
-                                                            jwk.ALGORITHMS.ES256,
-                                                            jwk.ALGORITHMS.ES384,
-                                                            ])
+        claims = jose.jwt.decode(token, pubkey, audience='ICI ACME',
+                                 algorithms=[jwk.ALGORITHMS.RS256,
+                                             jwk.ALGORITHMS.ES256,
+                                             jwk.ALGORITHMS.ES384,
+                                             ])
 
         # We are relying on the JOSE implementation to actually check 'exp'.
         # Remember this if changing from python-jose to something else in the future!
@@ -68,6 +69,10 @@ class PreAuthResource(BaseResource):
 
         if 'exp' not in claims:
             self.context.logger.error(f'No expiration time in pre-auth request: {claims}')
+            raise falcon.HTTPBadRequest
+
+        if 'iat' not in claims:
+            self.context.logger.error(f'No issuance time in pre-auth request: {claims}')
             raise falcon.HTTPBadRequest
 
         if not is_valid_infra_cert(first_cert):

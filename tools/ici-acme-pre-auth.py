@@ -16,8 +16,7 @@ from typing import Mapping
 from OpenSSL import crypto as openssl_crypto
 import jose
 import jose.constants
-from jose import jwt, jwk, jws
-from jose.backends.cryptography_backend import CryptographyECKey
+from jose import jwt, jwk
 
 logger = logging.getLogger()
 
@@ -130,7 +129,8 @@ def dehydrated_account_sign(data: str, dehydrated_account_dir: str) -> str:
     headers = {'kid': str(reg_info['id'])}
     # because of bugs in the jose implementation in used, we must wrap the token in a Mapping
     # and use jwt.encode instead of just calling jws.sign(data, ...)
-    token = jwt.encode({'token': data}, key.to_dict(), headers=headers, algorithm=jose.constants.ALGORITHMS.RS256)
+    _key = key.to_dict()
+    token = jwt.encode({'token': data}, _key, headers=headers, algorithm=_key['alg'])
     return token
 
 
@@ -147,14 +147,17 @@ def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str
     key = load_private_key(existing_key_path)
     _key = key.to_dict()
 
+    now = datetime.datetime.utcnow()
     claims = {'renew': True,
-              'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=300),
+              'exp': now + datetime.timedelta(seconds=300),
+              'iat': datetime.datetime.utcnow(),
+              'aud': 'ICI ACME',
               }
     token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
     return token
 
 
-def post_pre_auth(dehydrated_path: str, url: str, data: dict):
+def post_pre_auth(dehydrated_path: str, url: str, data: str) -> bool:
 
     signed = dehydrated_account_sign(data, dehydrated_path)
     logger.debug(f'Signed data: {signed}')
