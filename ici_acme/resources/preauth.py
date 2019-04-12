@@ -75,7 +75,7 @@ class PreAuthResource(BaseResource):
             self.context.logger.error(f'No issuance time in pre-auth request: {claims}')
             raise falcon.HTTPBadRequest
 
-        if not is_valid_infra_cert(first_cert):
+        if not is_valid_infra_cert(first_cert, ca_path=self.context.ca_path):
             self.context.logger.error(f'Certificate failed infra-cert validation')
             raise falcon.HTTPForbidden
 

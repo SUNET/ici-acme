@@ -17,7 +17,7 @@ class CertInfo(object):
     key_usage: Set[str] = field(default=lambda: {})
 
 
-def is_valid_infra_cert(cert_der, ca_path='/etc/ssl/certs/infra.crt'):
+def is_valid_infra_cert(cert_der, ca_path):
     return is_valid_x509_cert(cert_der, ca_path)
 
 
