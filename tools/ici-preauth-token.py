@@ -11,9 +11,16 @@ from dataclasses import dataclass
 from typing import Mapping, Optional
 
 import pkcs11
+import requests
 from pkcs11 import Attribute, ObjectClass, KeyType
 from OpenSSL import crypto
 from jose import jwk, jws
+
+
+_defaults = {'debug': False,
+             'module': '/usr/lib/softhsm/libsofthsm2.so',
+             'url': 'http://localhost:8000/',
+             }
 
 
 @dataclass
@@ -104,11 +111,6 @@ class P11Key(jwk.Key):
                 return 'ES256'
 
 
-_defaults = {'debug': False,
-             'module': '/usr/lib/softhsm/libsofthsm2.so',
-             }
-
-
 def parse_args(defaults: Mapping):
     parser = argparse.ArgumentParser(description='ICI ACME pre-auth token generator',
                                      add_help=True,
@@ -154,6 +156,11 @@ def parse_args(defaults: Mapping):
                         type=str,
                         help='PKCS#11 user-pin to access key',
     )
+    parser.add_argument('--url',
+                        dest='url',
+                        type=str, default=defaults['url'],
+                        help='ACME server URL (to the directory endpoint)',
+    )
 
     args = parser.parse_args()
     global P11Key_params
@@ -172,7 +179,7 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     certificate = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
     headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')]}
     claims = {'names': args.names,
-              'nonce': 'TODO: GET FROM ICI-ACME'
+              'nonce': get_acme_nonce(args.url)
               }
     token = pkcs11_jws_sign(claims, args.label, headers=headers)
     logger.debug(f'JWS: {token}')
@@ -188,6 +195,19 @@ def main(args: argparse.Namespace, logger: logging.Logger):
         print(token[:80])
         token = token[80:]
     return True
+
+
+def get_acme_nonce(url: str) -> str:
+    r = requests.get(url, json={})
+    directory = r.json()
+    if 'newNonce' not in directory:
+        raise RuntimeError(f'No newNonce endpoint returned from ACME server at {url}')
+    url = directory['newNonce']
+    r = requests.head(url)
+    nonce = r.headers.get('replay-nonce')
+    if not nonce:
+        raise RuntimeError(f'No nonce returned from newNonce endpoint at {url}')
+    return nonce
 
 
 def pkcs11_jws_sign(data, key=None, headers=None) -> str:
