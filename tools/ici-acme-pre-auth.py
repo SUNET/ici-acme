@@ -27,9 +27,6 @@ _defaults = {
     'url': 'http://localhost:8000/ici-acme-preauth',
 }
 
-# _ALG = 'P11TOKEN'
-_ALG = 'RS256'
-
 
 def parse_args(defaults: Mapping):
     parser = argparse.ArgumentParser(description='ICI ACME pre-auth client',
