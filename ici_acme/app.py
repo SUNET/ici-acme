@@ -28,7 +28,7 @@ api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
 api.req_options.media_handlers['application/jose+json'] = api.req_options.media_handlers['application/json']
 api.add_error_handler(exceptions.HTTPErrorDetail)
 
-api.add_route('/directory', DirectoryResource(context=context))
+api.add_route('/', DirectoryResource(context=context))
 api.add_route('/new-nonce', NewNonceResource(context=context))
 api.add_route('/new-account', NewAccountResource(context=context))
 api.add_route('/new-order', NewOrderResource(context=context))
