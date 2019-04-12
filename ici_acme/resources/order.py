@@ -11,6 +11,7 @@ from ici_acme.base import BaseResource
 from ici_acme.csr import validate
 from ici_acme.data import Account, Order, Certificate, Challenge, Authorization
 from ici_acme.utils import b64_decode, b64_encode
+from ici_acme.exceptions import MissingParamMalformed
 
 
 class OrderListResource(BaseResource):
@@ -137,6 +138,8 @@ class NewOrderResource(BaseResource):
         # Decode the clients order, e.g.
         #  {"identifiers": [{"type": "dns", "value": "test.test"}]}
         acme_request = json.loads(req.context['jose_verified_data'].decode('utf-8'))
+        if not acme_request.get('identifiers'):
+            raise MissingParamMalformed(param_name='identifiers')
 
         authorizations = []
         now = datetime.datetime.now(tz=datetime.timezone.utc)

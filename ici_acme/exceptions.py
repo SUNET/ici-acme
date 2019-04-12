@@ -47,6 +47,7 @@ class ErrorDetail(object):
     status: Optional[int] = None
     detail: Optional[str] = None
     instance: Optional[str] = None
+    algorithms: Optional[list] = None
     subproblems: Optional[List[Subproblem]] = None
 
 
@@ -83,6 +84,13 @@ class HTTPErrorDetail(falcon.HTTPError):
         resp.content_type = 'application/problem+json'
         ex.error_detail.instance = req.uri
         resp.body = json.dumps(ex.to_dict())
+
+
+class BadRequest(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='x-error:badRequest', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Bad Request'
 
 
 class AccountDoesNotExist(HTTPErrorDetail, falcon.HTTPBadRequest):
@@ -134,3 +142,52 @@ class BadPublicKey(HTTPErrorDetail, falcon.HTTPBadRequest):
         if not self.error_detail.detail:
             self.error_detail.detail = 'The JWS was signed by a public key the server does not support'
 
+
+class BadRevocationReason(HTTPErrorDetail, falcon.HTTPBadRequest):
+
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:badRevocationReason', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Bad revocation reason'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The revocation reason provided is not allowed by the server'
+
+
+class BadSignatureAlgorithm(HTTPErrorDetail, falcon.HTTPBadRequest):
+
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:badSignatureAlgorithm', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Bad signature algorithm'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The JWS was signed with an algorithm the server does not support'
+        if not self.error_detail.algorithms:
+            self.error_detail.algorithms = kwargs['algorithms']
+
+
+class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPMethodNotAllowed):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Method Not Allowed'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The used HTTP method is not allowed'
+
+
+class MissingParamMalformed(HTTPErrorDetail, falcon.HTTPMissingParam):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Missing parameter'
+        if not self.error_detail.detail:
+            param_name = kwargs.get('param_name')
+            self.error_detail.detail = f'The "{param_name}" parameter is required.'
+
+
+class Unauthorized(HTTPErrorDetail, falcon.HTTPUnauthorized):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:unauthorized', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Unauthorized'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'Unauthorized request'
