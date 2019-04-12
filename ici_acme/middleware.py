@@ -37,6 +37,8 @@ class HandleJOSE(object):
                 if not account:
                     self.context.logger.warning(f'Account not found using kid {kid}')
                     raise HTTPForbidden('Account not found')
+                if account.status != 'valid':
+                    raise Unauthorized(detail='Account deactivated')
                 self.context.logger.info(f'Authenticating request for account {account}')
                 req.context['account'] = account
                 protected = json.loads(b64_decode(account.jwk_data))
