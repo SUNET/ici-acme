@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 
 from jose import jws
+from jose.exceptions import JOSEError
 import json
 from falcon import Request, Response, HTTPForbidden
 from ici_acme.context import Context
 from ici_acme.utils import b64_decode
-from ici_acme.exceptions import BadRequest, Unauthorized, BadSignatureAlgorithm
+from ici_acme.exceptions import BadRequest, Unauthorized, BadSignatureAlgorithm, ServerInternal
 
 __author__ = 'lundberg'
 
@@ -52,8 +53,13 @@ class HandleJOSE(object):
                 self.context.logger.warning(f'Account not found using kid {kid}')
                 raise Unauthorized(detail='Account not found')
 
-            ret = jws.verify(token, jwk, algorithms='RS256')  # TODO - support other algorithms
-            self.context.logger.info(f'Verified data: {ret}')
+            try:
+                ret = jws.verify(token, jwk, algorithms='RS256')  # TODO - support other algorithms
+            except JOSEError as e:
+                self.context.logger.error(f'Exception while verifying token: {e}')
+                raise ServerInternal(detail=f'{e}')
+
+            self.context.logger.debug(f'Verified data: {ret}')
             req.context['jose_verified_data'] = ret
             req.context['jose_unverified_data'] = data
 

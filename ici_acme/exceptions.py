@@ -169,7 +169,7 @@ class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPMethodNotAllowed):
     def __init__(self, **kwargs):
         super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
         if not self.error_detail.title:
-            self.error_detail.title = 'Method Not Allowed'
+            self.error_detail.title = 'Method not allowed'
         if not self.error_detail.detail:
             self.error_detail.detail = 'The used HTTP method is not allowed'
 
@@ -182,6 +182,13 @@ class MissingParamMalformed(HTTPErrorDetail, falcon.HTTPMissingParam):
         if not self.error_detail.detail:
             param_name = kwargs.get('param_name')
             self.error_detail.detail = f'The "{param_name}" parameter is required.'
+
+
+class ServerInternal(HTTPErrorDetail, falcon.HTTPInternalServerError):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:serverInternal', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Internal server error'
 
 
 class Unauthorized(HTTPErrorDetail, falcon.HTTPUnauthorized):
