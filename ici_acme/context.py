@@ -43,10 +43,10 @@ class Context(object):
             return urlappend(base_url, self.application_root)
         return base_url
 
-    def new_account(self, jwk_data: str) -> Account:
+    def new_account(self, jwk: dict, alg: str) -> Account:
         # Use an integer account_id to be compatible with LetsEncrypt pre-RFC8555 'id' parameter
         account_id = str(int(time.time()))  # TODO: make sure there is no account with this ID already
-        account = Account(id=account_id, status='valid', jwk_data=jwk_data)
+        account = Account(id=account_id, status='valid', jwk=jwk, alg=alg)
         self.store.save('account', str(account_id), account.to_dict())
         return account
 

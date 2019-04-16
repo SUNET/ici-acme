@@ -37,10 +37,11 @@ class HandleJOSE(object):
             account = self.context.get_account_using_kid(kid)
             if account:
                 if account.status != 'valid':
+                    self.context.logger.info(f'Account {account} deactivated')
                     raise Unauthorized(detail='Account deactivated')
                 self.context.logger.info(f'Authenticating request for account {account}')
                 req.context['account'] = account
-                jwk = json.loads(b64_decode(account.jwk_data))['jwk']
+                jwk = account.jwk
             elif req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
                 jwk = protected['jwk']
                 if not protected['alg'] == 'RS256':
@@ -59,9 +60,10 @@ class HandleJOSE(object):
                 self.context.logger.error(f'Exception while verifying token: {e}')
                 raise ServerInternal(detail=f'{e}')
 
+            self.context.logger.debug(f'Headers: {headers}')
             self.context.logger.debug(f'Verified data: {ret}')
             req.context['jose_verified_data'] = ret
-            req.context['jose_unverified_data'] = data
+            req.context['jose_headers'] = headers
 
 
 class HandleReplayNonce(object):

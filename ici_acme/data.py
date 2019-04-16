@@ -18,7 +18,8 @@ class StoreObject(object):
 class Account(StoreObject):
     id: str
     status: str
-    jwk_data: str = field(repr=False)
+    jwk: dict = field(repr=False)
+    alg: str
     last_order: Optional[datetime] = None
     order_ids: List[dict] = field(default_factory=lambda: [])
     preauth_ids: List[dict] = field(default_factory=lambda: [])
