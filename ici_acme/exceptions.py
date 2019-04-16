@@ -183,7 +183,73 @@ class BadSignatureAlgorithm(HTTPErrorDetail, falcon.HTTPBadRequest):
             self.error_detail.algorithms = kwargs['algorithms']
 
 
-class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPMethodNotAllowed):
+class CAAForbids(HTTPErrorDetail, falcon.HTTPBadRequest):
+
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:caa', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'CAA Forbids'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'Certification Authority Authorization (CAA) records forbid the CA from issuing\
+             a certificate'
+
+
+class CompoundException(HTTPErrorDetail, falcon.HTTPBadRequest):
+
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:compound', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Compound problem'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'See subproblems for details'
+
+
+class ConnectionException(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:connection', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Connection problem'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The server could not connect to validation target'
+
+
+class DNSException(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:dns', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'DNS problem'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'There was a problem with a DNS query during identifier validation'
+
+
+class ExternalAccountRequired(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:externalAccountRequired', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'External account required'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The request must include a value for the "externalAccountBinding" field'
+
+
+class IncorrectResponse(HTTPErrorDetail, falcon.HTTPUnauthorized):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:incorrectResponse', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Incorrect response'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'Response received did not match the challenge\'s requirements'
+
+
+class InvalidContact(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Invalid contact'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'A contact URL for an account was invalid'
+
+
+class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPBadRequest):
     def __init__(self, **kwargs):
         super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
         if not self.error_detail.title:
@@ -200,6 +266,15 @@ class MissingParamMalformed(HTTPErrorDetail, falcon.HTTPMissingParam):
         if not self.error_detail.detail:
             param_name = kwargs.get('param_name')
             self.error_detail.detail = f'The "{param_name}" parameter is required.'
+
+
+class OrderNotReady(HTTPErrorDetail, falcon.HTTPForbidden):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:orderNotReady', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Order not ready'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The request attempted to finalize an order that is not ready to be finalized'
 
 
 class ServerInternal(HTTPErrorDetail, falcon.HTTPInternalServerError):

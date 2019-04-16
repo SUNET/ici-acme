@@ -11,7 +11,7 @@ from ici_acme.base import BaseResource
 from ici_acme.csr import validate
 from ici_acme.data import Account, Order, Certificate, Challenge, Authorization
 from ici_acme.utils import b64_decode, b64_encode
-from ici_acme.exceptions import MissingParamMalformed
+from ici_acme.exceptions import MissingParamMalformed, OrderNotReady, BadCSR
 
 
 class OrderListResource(BaseResource):
@@ -111,22 +111,18 @@ class FinalizeOrderResource(OrderResource):
         self.update_order_state(order)
 
         if order.status != 'ready':
-            # If status is not ready MUST return a 403 (Forbidden) error with a problem document of type "orderNotReady"
             self.context.logger.error('Not allowed call to finalize, order not in "ready" state')
-            raise falcon.HTTPForbidden
+            raise OrderNotReady
 
         data = json.loads(req.context['jose_verified_data'].decode('utf-8'))
         # PEM format is plain base64 encoded
         csr = base64.b64encode(b64_decode(data['csr'])).decode('utf-8')
-        if not validate(csr, order, self.context):
-            raise falcon.HTTPForbidden
 
-        order.certificate_id = b64_encode(os.urandom(128 // 8))
-        cert = Certificate(csr=csr,
-                           created=datetime.datetime.now(tz=datetime.timezone.utc),
-                           )
-        self.context.store.save('certificate', order.certificate_id, cert.to_dict())
-        self.context.store.save('order', order.id, order.to_dict())
+        if validate(csr, order, self.context):
+            order.certificate_id = b64_encode(os.urandom(128 // 8))
+            cert = Certificate(csr=csr, created=datetime.datetime.now(tz=datetime.timezone.utc))
+            self.context.store.save('certificate', order.certificate_id, cert.to_dict())
+            self.context.store.save('order', order.id, order.to_dict())
 
         super().on_post(req, resp, order.id)
 
