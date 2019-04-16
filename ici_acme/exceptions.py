@@ -278,11 +278,41 @@ class OrderNotReady(HTTPErrorDetail, falcon.HTTPForbidden):
             self.error_detail.detail = 'The request attempted to finalize an order that is not ready to be finalized'
 
 
+class RateLimited(HTTPErrorDetail, falcon.HTTPServiceUnavailable):
+    def __init__(self, **kwargs):
+        retry_after = kwargs.pop('retry_after', None)
+        super().__init__(type='urn:ietf:params:acme:error:rateLimited', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Rate limited'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The request exceeds a rate limit '
+        if retry_after:
+            self.extra_headers = {'Retry-After': retry_after}
+
+
+class RejectedIdentifier(HTTPErrorDetail, falcon.HTTPForbidden):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:rejectedIdentifier', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Rejected identifier'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The server will not issue certificates for the identifier'
+
+
 class ServerInternal(HTTPErrorDetail, falcon.HTTPInternalServerError):
     def __init__(self, **kwargs):
         super().__init__(type='urn:ietf:params:acme:error:serverInternal', **kwargs)
         if not self.error_detail.title:
             self.error_detail.title = 'Internal server error'
+
+
+class TLSException(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:tls', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'TLS problem'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'The server received a TLS error during validation'
 
 
 class Unauthorized(HTTPErrorDetail, falcon.HTTPUnauthorized):
@@ -292,3 +322,30 @@ class Unauthorized(HTTPErrorDetail, falcon.HTTPUnauthorized):
             self.error_detail.title = 'Unauthorized'
         if not self.error_detail.detail:
             self.error_detail.detail = 'Unauthorized request'
+
+
+class UnsupportedContact(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:unsupportedContact', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Unsupported contact'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'A contact URL for the account used an unsupported protocol scheme'
+
+
+class UnsupportedIdentifier(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:unsupportedIdentifier', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Unsupported identifier'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'An identifier is of an unsupported type'
+
+
+class UserActionRequired(HTTPErrorDetail, falcon.HTTPBadRequest):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:userActionRequired', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'User action required'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'Visit the "instance" URL and take actions specified there'
