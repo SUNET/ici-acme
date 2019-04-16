@@ -67,11 +67,20 @@ class HTTPErrorDetail(falcon.HTTPError):
         subproblems = kwargs.pop('subproblems', None)
         self._error_detail: Optional[ErrorDetail] = ErrorDetail(type=typ, detail=detail, instance=instance,
                                                                 subproblems=subproblems)
+        self._extra_headers: Optional[Dict] = None
         super().__init__(**kwargs)
 
     @property
     def error_detail(self):
         return self._error_detail
+
+    @property
+    def extra_headers(self):
+        return self._extra_headers
+
+    @extra_headers.setter
+    def extra_headers(self, headers: Dict):
+        self._extra_headers = headers
 
     def to_dict(self, obj_type=dict):
         result = super().to_dict(obj_type)
@@ -84,6 +93,9 @@ class HTTPErrorDetail(falcon.HTTPError):
         resp.content_type = 'application/problem+json'
         ex.error_detail.instance = req.uri
         resp.body = json.dumps(ex.to_dict())
+        if ex.extra_headers:
+            for key, value in ex.extra_headers.items():
+                resp.set_header(key, value)
 
 
 class BadRequest(HTTPErrorDetail, falcon.HTTPBadRequest):
@@ -126,11 +138,17 @@ class BadCSR(HTTPErrorDetail, falcon.HTTPBadRequest):
 class BadNonce(HTTPErrorDetail, falcon.HTTPBadRequest):
 
     def __init__(self, **kwargs):
+        new_nonce = kwargs.pop('new_nonce', None)
         super().__init__(type='urn:ietf:params:acme:error:badNonce', **kwargs)
         if not self.error_detail.title:
             self.error_detail.title = 'Bad nonce'
         if not self.error_detail.detail:
             self.error_detail.detail = 'The client sent an unacceptable anti-replay nonce'
+        if new_nonce:
+            self.extra_headers = {
+                'Replay-Nonce': new_nonce,
+                'Cache-Control': 'no-store'
+            }
 
 
 class BadPublicKey(HTTPErrorDetail, falcon.HTTPBadRequest):
