@@ -26,6 +26,9 @@ context.logger.info('Starting app')
 
 api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
 api.req_options.media_handlers['application/jose+json'] = api.req_options.media_handlers['application/json']
+
+# Error handlers tried in reversed declaration order
+api.add_error_handler(Exception, exceptions.unexpected_error_handler)
 api.add_error_handler(exceptions.HTTPErrorDetail)
 
 api.add_route('/', DirectoryResource(context=context))

@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import falcon
 import json
+import logging
+import traceback
+import uuid
 
-from typing import Optional, Union, Dict, List, Tuple
+from typing import Optional, Dict, List
 from dataclasses import dataclass, asdict
 
 from ici_acme.utils import filter_none
 
 __author__ = 'lundberg'
 
+logger = logging.getLogger(__name__)
 
 # HTTP/1.1 403 Forbidden
 # Content-Type: application/problem+json
@@ -56,6 +60,15 @@ class Subproblem(object):
     type: str
     detail: Optional[str] = None
     identifier: Optional[Dict[str, str]] = None
+
+
+def unexpected_error_handler(ex: Exception, req: falcon.Request, resp: falcon.Response, params):
+    error_id = uuid.uuid4()
+    logger.error(f'Unexpected error {error_id}: {ex}')
+    logger.error(traceback.format_exc())
+    e = ServerInternal()
+    e.error_detail.detail = f'Please reference the error id {error_id} when reporting this issue'
+    return e.handle(e, req, resp, params)
 
 
 class HTTPErrorDetail(falcon.HTTPError):
