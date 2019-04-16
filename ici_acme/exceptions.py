@@ -91,7 +91,8 @@ class HTTPErrorDetail(falcon.HTTPError):
     def handle(ex: HTTPErrorDetail, req: falcon.Request, resp: falcon.Response, params):
         resp.status = ex.status
         resp.content_type = 'application/problem+json'
-        ex.error_detail.instance = req.uri
+        if not ex.error_detail.instance:
+            ex.error_detail.instance = req.uri
         resp.body = json.dumps(ex.to_dict())
         if ex.extra_headers:
             for key, value in ex.extra_headers.items():
