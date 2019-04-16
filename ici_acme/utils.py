@@ -40,7 +40,7 @@ def b64_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode('utf-8').strip('=')
 
 
-def b64_decode(data: AnyStr) -> str:
+def b64_decode(data: AnyStr) -> bytes:
     if not isinstance(data, bytes):
         data = data.encode('utf-8')
     data += b'=' * (len(data) % 4)

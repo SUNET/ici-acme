@@ -20,7 +20,8 @@ class Context(object):
         self.server_name: str = 'localhost:8000'
         self.application_root: str = ''
 
-        self.ca_path = '/etc/ssl/certs/infra.crt'
+        self.token_ca_path = None
+        self.renew_ca_path = '/etc/ssl/certs/infra.crt'
 
         self.logger = logging.getLogger(__name__)
         self.logger.addHandler(logging.StreamHandler(sys.stdout))

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import binascii
+import datetime
 import hashlib
 import logging
 import logging.handlers
@@ -118,7 +119,7 @@ def parse_args(defaults: Mapping):
     )
 
     # Positional arguments
-    parser.add_argument('names',
+    parser.add_argument('names', nargs='+',
                         metavar='FQDN',
                         help='Names to put in token',
     )
@@ -173,23 +174,35 @@ def parse_args(defaults: Mapping):
 
 
 def main(args: argparse.Namespace, logger: logging.Logger):
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    directory = get_acme_directory(args.url)
+
     with open(args.cert, 'rb') as fd:
         cert_pem = fd.read()
 
     certificate = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
     headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')]}
     claims = {'names': args.names,
-              'nonce': get_acme_nonce(args.url)
+              'nonce': get_acme_nonce(directory),
+              'aud': directory.get('newAuthz'),
+              'iat': int(now.timestamp()),
+              'exp': int((now + datetime.timedelta(minutes=5)).timestamp()),
+              'crit': ['exp'],
               }
     token = pkcs11_jws_sign(claims, args.label, headers=headers)
     logger.debug(f'JWS: {token}')
 
-    verif = pkcs11_jws_verify(token)
-    logger.debug(f'PKCS#11 verification result: {verif}')
+    # Verify token using PKCS#11. This step is not really necessary, but
+    # the code seemed like it could be useful sometime somewhere so why not.
+    verified = pkcs11_jws_verify(token)
+    logger.debug(f'PKCS#11 verification result: {verified}')
 
+    # Verify the token by extracting the public key from the certificate, just like
+    # the ICI ACME server this token will be passed to will do. This ensures the
+    # certificate provided (in a file) matches the private key used (PKCS#11).
     pubkey_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, certificate.get_pubkey())
-    verif = jws.verify(token, pubkey_pem.decode('utf-8'), [jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
-    logger.debug(f'Verification result: {verif}')
+    verified = jws.verify(token, pubkey_pem.decode('utf-8'), [jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
+    logger.debug(f'Verification result: {verified}')
 
     while token:
         print(token[:80])
@@ -197,11 +210,15 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     return True
 
 
-def get_acme_nonce(url: str) -> str:
+def get_acme_directory(url: str) -> dict:
     r = requests.get(url, json={})
     directory = r.json()
     if 'newNonce' not in directory:
         raise RuntimeError(f'No newNonce endpoint returned from ACME server at {url}')
+    return r.json()
+
+
+def get_acme_nonce(directory: Mapping) -> str:
     url = directory['newNonce']
     r = requests.head(url)
     nonce = r.headers.get('replay-nonce')

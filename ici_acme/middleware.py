@@ -54,7 +54,7 @@ class HandleJOSE(object):
                 raise Unauthorized(detail='Account not found')
 
             try:
-                ret = jws.verify(token, jwk, algorithms='RS256')  # TODO - support other algorithms
+                ret = jws.verify(token, jwk, algorithms=['RS256', 'ES256', 'ES384'])
             except JOSEError as e:
                 self.context.logger.error(f'Exception while verifying token: {e}')
                 raise ServerInternal(detail=f'{e}')

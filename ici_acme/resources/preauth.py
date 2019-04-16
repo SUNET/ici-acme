@@ -1,20 +1,18 @@
 import base64
-import json
 import datetime
+import json
 import os
-from typing import Iterable
 
 import falcon
-
-from falcon import Request, Response
 import jose
+from falcon import Request, Response
 from jose import jwk, jws, jwt
 
 from ici_acme.base import BaseResource
-from ici_acme.data import Challenge, Authorization
-from ici_acme.policy.x509 import cert_der_to_pem, get_public_key, is_valid_infra_cert, get_cert_info
+from ici_acme.data import Authorization
+from ici_acme.policy.token import is_valid_preauth_token
+from ici_acme.policy.x509 import get_cert_info, get_public_key, is_valid_x509_cert
 from ici_acme.utils import b64_encode
-
 
 _MAX_ALLOWED_TIMEDIFF = 300
 
@@ -55,7 +53,7 @@ class PreAuthResource(BaseResource):
         first_cert = base64.b64decode(_headers['x5c'][0])
         pubkey = get_public_key(first_cert)
 
-        claims = jose.jwt.decode(token, pubkey, audience='ICI ACME',
+        claims = jose.jwt.decode(token, pubkey, audience=self.url_for('new-authz'),
                                  algorithms=[jwk.ALGORITHMS.RS256,
                                              jwk.ALGORITHMS.ES256,
                                              jwk.ALGORITHMS.ES384,
@@ -75,17 +73,25 @@ class PreAuthResource(BaseResource):
             self.context.logger.error(f'No issuance time in pre-auth request: {claims}')
             raise falcon.HTTPBadRequest
 
-        if not is_valid_infra_cert(first_cert, ca_path=self.context.ca_path):
-            self.context.logger.error(f'Certificate failed infra-cert validation')
-            raise falcon.HTTPForbidden
+        authorized_for_names = []
 
-        cert_info = get_cert_info(first_cert, der_encoded=True)
+        if claims.get('renew') is True:
+            if self.context.renew_ca_path:
+                if not is_valid_x509_cert(first_cert, ca_path=self.context.ca_path):
+                    self.context.logger.error(f'Certificate failed infra-cert validation')
+                    raise falcon.HTTPForbidden
+
+                cert_info = get_cert_info(first_cert, der_encoded=True)
+                authorized_for_names = cert_info.names
+        elif self.context.token_ca_path:
+            if is_valid_preauth_token(token, self.context.token_ca_path):
+                pass
 
         # Create Authorization objects for each identifier, and add them to the
         # accounts preauth_ids so that they will be found in newOrder
         account = req.context['account']
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        for name in cert_info.names:
+        for name in authorized_for_names:
             ident = {'type': 'dns',
                      'value': name,
                      }

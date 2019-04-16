@@ -17,11 +17,10 @@ class CertInfo(object):
     key_usage: Set[str] = field(default=lambda: {})
 
 
-def is_valid_infra_cert(cert_der, ca_path):
-    return is_valid_x509_cert(cert_der, ca_path)
-
-
 def is_valid_x509_cert(cert_der: bytes, ca_path: str) -> bool:
+    if not ca_path:
+        return False
+
     client_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert_der)
     store = crypto.X509Store()
 
@@ -31,7 +30,8 @@ def is_valid_x509_cert(cert_der: bytes, ca_path: str) -> bool:
             store.add_cert(_ca)
     elif os.path.isdir(ca_path):
         for fn in glob.glob(os.path.join(ca_path, '*.crt')):
-            _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fn)
+            with open(fn, 'rb') as fd:
+                _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fd.read())
             store.add_cert(_ca)
     else:
         raise RuntimeError(f'CA path {repr(ca_path)} is not a file or directory')
