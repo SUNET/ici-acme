@@ -16,7 +16,6 @@ def is_valid_preauth_token(preauth: PreAuthToken, ca_path: str, context: Context
 
     :param ca_path: Path to CA store validating the x5c certificate in the token
     :param context: ICI ACME context
-    :param audience: Expected JWS audience of token
     """
     if not is_valid_x509_cert(preauth.cert, ca_path):
         logger.warning(f'Certificate in preauth-token failed to validate with ca_path {ca_path}')

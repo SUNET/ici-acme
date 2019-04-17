@@ -16,6 +16,7 @@ def get_authorized_names(preauth: PreAuthToken, context: Context) -> Iterable[st
             cert_info = get_cert_info(preauth.cert, der_encoded=True)
             return cert_info.names
     elif context.token_ca_path:
-        if is_valid_preauth_token(preauth, context.token_ca_path, context):
-            pass
+        names = is_valid_preauth_token(preauth, context.token_ca_path, context)
+        if names is not False:
+            return names
     return []
