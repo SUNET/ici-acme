@@ -29,6 +29,8 @@ api.req_options.media_handlers['application/jose+json'] = api.req_options.media_
 
 # Error handlers tried in reversed declaration order
 api.add_error_handler(Exception, exceptions.unexpected_error_handler)
+api.add_error_handler(falcon.HTTPMethodNotAllowed, exceptions.method_not_allowed_handler)
+api.add_error_handler(falcon.HTTPUnsupportedMediaType, exceptions.unsupported_media_type_handler)
 api.add_error_handler(exceptions.HTTPErrorDetail)
 
 api.add_route('/', DirectoryResource(context=context))

@@ -62,6 +62,20 @@ class Subproblem(object):
     identifier: Optional[Dict[str, str]] = None
 
 
+# Catch and handle falcons default exceptions
+def method_not_allowed_handler(ex: falcon.HTTPMethodNotAllowed, req: falcon.Request, resp: falcon.Response, params):
+    orig_headers = ex.headers
+    e = MethodNotAllowedMalformed(allowed_methods=orig_headers.get('Allow').split(','))
+    e.extra_headers = orig_headers
+    return e.handle(e, req, resp, params)
+
+
+def unsupported_media_type_handler(ex: falcon.HTTPUnsupportedMediaType, req: falcon.Request, resp: falcon.Response,
+                                   params):
+    e = UnsupportedMediaTypeMalformed(detail=ex.description)
+    return e.handle(e, req, resp, params)
+
+
 def unexpected_error_handler(ex: Exception, req: falcon.Request, resp: falcon.Response, params):
     error_id = uuid.uuid4()
     logger.error(f'Unexpected error {error_id}: {ex}')
@@ -263,13 +277,14 @@ class InvalidContact(HTTPErrorDetail, falcon.HTTPBadRequest):
             self.error_detail.detail = 'A contact URL for an account was invalid'
 
 
-class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPBadRequest):
+class MethodNotAllowedMalformed(HTTPErrorDetail, falcon.HTTPMethodNotAllowed):
     def __init__(self, **kwargs):
         super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
         if not self.error_detail.title:
             self.error_detail.title = 'Method not allowed'
         if not self.error_detail.detail:
-            self.error_detail.detail = 'The used HTTP method is not allowed'
+            allowed_methods = kwargs.get('allowed_methods')
+            self.error_detail.detail = f'The used HTTP method is not allowed. Allowed methods: {allowed_methods}'
 
 
 class MissingParamMalformed(HTTPErrorDetail, falcon.HTTPMissingParam):
@@ -344,6 +359,15 @@ class UnsupportedContact(HTTPErrorDetail, falcon.HTTPBadRequest):
             self.error_detail.title = 'Unsupported contact'
         if not self.error_detail.detail:
             self.error_detail.detail = 'A contact URL for the account used an unsupported protocol scheme'
+
+
+class UnsupportedMediaTypeMalformed(HTTPErrorDetail, falcon.HTTPUnsupportedMediaType):
+    def __init__(self, **kwargs):
+        super().__init__(type='urn:ietf:params:acme:error:malformed', **kwargs)
+        if not self.error_detail.title:
+            self.error_detail.title = 'Unsupported media type'
+        if not self.error_detail.detail:
+            self.error_detail.detail = 'Request was made with an unsupported media type'
 
 
 class UnsupportedIdentifier(HTTPErrorDetail, falcon.HTTPBadRequest):
