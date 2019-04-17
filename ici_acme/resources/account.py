@@ -43,15 +43,27 @@ class AccountResource(BaseResource):
         }
         resp.set_header('Location', self.url_for('accounts', account.id))
 
+    def _update_contacts(self, req: Request):
+        # The server SHOULD validate that the contact URLs in the "contact" field are valid and supported by the
+        # server.  If the server validates contact URLs, it MUST support the "mailto" scheme.  Clients MUST NOT provide
+        # a "mailto" URL in the "contact" field that contains "hfields" [RFC6068] or more than one "addr-spec" in the
+        # "to" component.  If a server encounters a "mailto" contact URL that does not meet these criteria, then it
+        # SHOULD reject it as invalid.
+        # If the server rejects a contact URL for using an unsupported scheme, it MUST return an error of type
+        # "unsupportedContact", with a description of the error and what types of contact URLs the server considers
+        # acceptable.  If the server rejects a contact URL for using a supported scheme but an invalid value, then the
+        # server MUST return an error of type "invalidContact".
+        raise NotImplementedError
+
 
 class NewAccountResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
         if req.context.get('account_creation') is True:
-            jwk_data = req.context['jose_unverified_data']['protected']
-            if jwk_data.get('onlyReturnExisting', False):
+            headers = req.context['jose_unverified_headers']
+            if headers.get('onlyReturnExisting', False):
                 raise AccountDoesNotExist
-            account = self.context.new_account(jwk_data)
+            account = self.context.new_account(jwk=headers['jwk'], alg=headers['alg'])
             self.context.logger.info(f'Account {account} registered')
             resp.status = falcon.HTTP_201
         else:
