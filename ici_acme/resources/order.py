@@ -11,7 +11,7 @@ from ici_acme.base import BaseResource
 from ici_acme.csr import validate
 from ici_acme.data import Account, Order, Certificate, Challenge, Authorization
 from ici_acme.utils import b64_decode, b64_encode
-from ici_acme.exceptions import MissingParamMalformed, OrderNotReady, BadCSR
+from ici_acme.exceptions import MissingParamMalformed, OrderNotReady
 
 
 class OrderListResource(BaseResource):
