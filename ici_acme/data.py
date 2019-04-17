@@ -42,6 +42,7 @@ class Order(StoreObject):
     def from_dict(cls, data):
         return cls(**data)
 
+
 @dataclass()
 class Authorization(StoreObject):
     id: str
@@ -50,6 +51,16 @@ class Authorization(StoreObject):
     expires: Optional[datetime]  # this one is set when status transitions to 'valid'
     identifier: dict
     challenge_ids: List[str]
+
+    def to_response(self, challenges: List) -> Mapping:
+        data = {
+            'status': self.status,
+            'identifier': self.identifier,
+            'challenges': challenges,
+        }
+        if self.expires:
+            data['expires'] = str(self.expires)
+        return data
 
 
 @dataclass()

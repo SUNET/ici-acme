@@ -47,12 +47,7 @@ class AuthorizationResource(BaseResource):
             this = self.context.store.load_challenge(_id)
             challenges += [this.to_response()]
 
-        resp.media = {
-            'status': authz.status,
-            #expires:
-            'identifier': authz.identifier,
-            'challenges': challenges,
-        }
+        resp.media = authz.to_response(challenges)
 
 
 class ChallengeResource(BaseResource):

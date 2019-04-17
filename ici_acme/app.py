@@ -37,10 +37,9 @@ api.add_route('/', DirectoryResource(context=context))
 api.add_route('/new-nonce', NewNonceResource(context=context))
 api.add_route('/new-account', NewAccountResource(context=context))
 api.add_route('/new-order', NewOrderResource(context=context))
+api.add_route('/new-authz', PreAuthResource(context=context))
 api.add_route('/authz/{authz_id}', AuthorizationResource(context=context))
 api.add_route('/challenge/{challenge_id}', ChallengeResource(context=context))
-api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))
-api.add_route('/ici-acme-preauth', PreAuthResource(context=context))
 # OrderResource
 api.add_route('/order', OrderListResource(context=context))
 api.add_route('/order/{order_id}', OrderResource(context=context))
@@ -49,4 +48,8 @@ api.add_route('/order/{order_id}/finalize', FinalizeOrderResource(context=contex
 api.add_route('/certificate/{certificate_id}', CertificateResource(context=context))
 # AccountResource
 api.add_route('/account/{account_id}', AccountResource(context=context))
+
+# Development
+api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))  # TODO: Remove
+
 context.logger.info('app running..')
