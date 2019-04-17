@@ -43,7 +43,7 @@ class HandleJOSE(object):
                 jwk = json.loads(b64_decode(account.jwk_data))['jwk']
             elif req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
                 jwk = protected['jwk']
-                if not protected['alg'] == 'RS256':
+                if protected['alg'] not in ['RS256', 'ES256', 'ES384']:
                     # TODO:  An ACME server MUST implement the "ES256" signature algorithm [RFC7518] and SHOULD
                     #  implement the "EdDSA" signature algorithm using
                     #  the "Ed25519" variant (indicated by "crv") [RFC8037].
