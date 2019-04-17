@@ -55,7 +55,7 @@ class PreAuthResource(BaseResource):
         authorized_for_names = get_authorized_names(preauth, self.context)
 
         if not authorized_for_names:
-            raise falcon.HTTPForbidden
+            raise RejectedIdentifier
 
         # Create Authorization objects for each identifier, and add them to the
         # accounts preauth_ids so that they will be found in newOrder
@@ -100,14 +100,17 @@ def validate_token_signature(token: str, audience: str, context: Context) -> Pre
     # We are relying on the JOSE implementation to actually check 'exp'.
     # Remember this if changing from python-jose to something else in the future!
     if 'exp' not in claims.get('crit', []):
-        context.logger.error(f'Extension "exp" not in header "crit": {_headers}')
-        raise falcon.HTTPBadRequest
+        error_msg = f'Extension "exp" not in header "crit": {_headers}'
+        context.logger.error(error_msg)
+        raise BadRequest(detail=error_msg)
     if 'exp' not in claims:
-        context.logger.error(f'No expiration time in pre-auth request: {claims}')
-        raise falcon.HTTPBadRequest
+        error_msg = f'No expiration time in pre-auth request: {claims}'
+        context.logger.error(error_msg)
+        raise BadRequest(detail=error_msg)
     if 'iat' not in claims:
-        context.logger.error(f'No issuance time in pre-auth request: {claims}')
-        raise falcon.HTTPBadRequest
+        error_msg = f'No issuance time in pre-auth request: {claims}'
+        context.logger.error(error_msg)
+        raise BadRequest(detail=error_msg)
 
     # Actual expiration checking should have been done by the JOSE implementation
 
