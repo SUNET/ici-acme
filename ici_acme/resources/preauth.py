@@ -3,7 +3,6 @@ import datetime
 import json
 import os
 
-import falcon
 import jose
 from falcon import Request, Response
 from jose import jwk, jws, jwt
@@ -11,8 +10,8 @@ from jose import jwk, jws, jwt
 from ici_acme.base import BaseResource
 from ici_acme.context import Context
 from ici_acme.data import Authorization
+from ici_acme.exceptions import RejectedIdentifier, BadRequest
 from ici_acme.policy import get_authorized_names, PreAuthToken
-from ici_acme.policy.token import is_valid_preauth_token
 from ici_acme.policy.x509 import get_public_key
 from ici_acme.utils import b64_encode
 
@@ -78,9 +77,16 @@ class PreAuthResource(BaseResource):
                                      'expires': authz.expires,
                                      }]
         self.context.store.save('account', account.id, account.to_dict())
+        # TODO: The server allocates a new URL for this authorization and returns a
+        #       201 (Created) response with the authorization URL in the Location
+        #       header field and the JSON authorization object in the body.
+        # resp.status = falcon.HTTP_201
+        # resp.set_header('Location', self.url_for('authz', authz.id))
+        # resp.media = authz.to_response(challenges=[])
         resp.media = {
             'status': 'OK'
         }
+
 
 def validate_token_signature(token: str, audience: str, context: Context) -> PreAuthToken:
     _headers = jose.jws.get_unverified_header(token)
