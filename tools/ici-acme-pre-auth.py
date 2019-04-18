@@ -24,7 +24,7 @@ _defaults = {
     'syslog': False,
     'debug': False,
     'mode': 'renew',
-    'url': 'http://localhost:8000/ici-acme-preauth',
+    'url': 'http://localhost:8000/',
 }
 
 
@@ -119,26 +119,29 @@ def load_pem(path: str):
         sys.exit(1)
 
 
-def dehydrated_account_sign(data: str, dehydrated_account_dir: str) -> str:
+def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: Mapping) -> str:
     key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
     with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
         reg_info = json.loads(fd.read())
-    headers = {'kid': str(reg_info['id'])}
+    headers = {'kid': str(reg_info['id']),
+               'url': directory['newAuthz'],
+               'nonce': get_acme_nonce(directory),
+               }
     # because of bugs in the jose implementation in used, we must wrap the token in a Mapping
     # and use jwt.encode instead of just calling jws.sign(data, ...)
+    claims = {'token': data}
     _key = key.to_dict()
-    token = jwt.encode({'token': data}, _key, headers=headers, algorithm=_key['alg'])
+    token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
     return token
 
 
-def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str) -> str:
+def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str, directory: Mapping) -> str:
 
     existing_certificate = load_pem(existing_certificate_path)
     certificate = b64encode(openssl_crypto.dump_certificate(
         openssl_crypto.FILETYPE_ASN1, existing_certificate)).decode('utf-8')
 
     headers = {'x5c': [certificate],  # chain, one cert per element
-               'crit': ['exp'],
                }
 
     key = load_private_key(existing_key_path)
@@ -148,15 +151,15 @@ def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str
     claims = {'renew': True,
               'exp': now + datetime.timedelta(seconds=300),
               'iat': datetime.datetime.utcnow(),
-              'aud': 'ICI ACME',
+              'aud': directory['newAuthz'],
+              'crit': ['exp'],
               }
     token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
     return token
 
 
-def post_pre_auth(dehydrated_path: str, url: str, data: str) -> bool:
-
-    signed = dehydrated_account_sign(data, dehydrated_path)
+def post_pre_auth(dehydrated_path: str, directory: Mapping, data: str) -> bool:
+    signed = dehydrated_account_sign(data, dehydrated_path, directory)
     logger.debug(f'Signed data: {signed}')
 
     _elem = signed.split('.')
@@ -164,10 +167,31 @@ def post_pre_auth(dehydrated_path: str, url: str, data: str) -> bool:
                 'payload': _elem[1],
                 'signature': _elem[2],
                 }
+    headers = {'content-type': 'application/jose+json'}
 
-    r = requests.post(url, json=req_data)
+    r = requests.post(directory['newAuthz'], json=req_data, headers=headers)
     logger.debug('Response from server: {}\n{}\n'.format(r, r.text))
+    if r.status_code != 201:
+        logger.error(f'Error response from server (endpoint {directory["newAuthz"]}): {r} {r.text}')
+        return False
     return True
+
+
+def get_acme_directory(url: str) -> dict:
+    r = requests.get(url, json={})
+    directory = r.json()
+    if 'newNonce' not in directory:
+        raise RuntimeError(f'No newNonce endpoint returned from ACME server at {url}')
+    return r.json()
+
+
+def get_acme_nonce(directory: Mapping) -> str:
+    url = directory['newNonce']
+    r = requests.head(url)
+    nonce = r.headers.get('replay-nonce')
+    if not nonce:
+        raise RuntimeError(f'No nonce returned from newNonce endpoint at {url}')
+    return nonce
 
 
 def main():
@@ -178,8 +202,10 @@ def main():
         _config_logger(args, progname)
         res = False
         if args.mode == 'renew':
-            pre_auth = create_renew_pre_auth(args.existing_cert, args.private_key)
-            res = post_pre_auth(args.dehydrated_account_dir, args.url, pre_auth)
+            directory = get_acme_directory(args.url)
+
+            pre_auth = create_renew_pre_auth(args.existing_cert, args.private_key, directory)
+            res = post_pre_auth(args.dehydrated_account_dir, directory, pre_auth)
 
         if res is True:
             sys.exit(0)

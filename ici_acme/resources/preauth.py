@@ -4,18 +4,16 @@ import json
 import os
 
 import jose
-from falcon import Request, Response
+from falcon import Request, Response, falcon
 from jose import jwk, jws, jwt
 
 from ici_acme.base import BaseResource
 from ici_acme.context import Context
 from ici_acme.data import Authorization
-from ici_acme.exceptions import RejectedIdentifier, BadRequest
-from ici_acme.policy import get_authorized_names, PreAuthToken
+from ici_acme.exceptions import BadRequest, RejectedIdentifier
+from ici_acme.policy import PreAuthToken, get_authorized_names
 from ici_acme.policy.x509 import get_public_key
 from ici_acme.utils import b64_encode
-
-_MAX_ALLOWED_TIMEDIFF = 300
 
 
 class FakeAuthResource(BaseResource):
@@ -80,7 +78,7 @@ class PreAuthResource(BaseResource):
         # TODO: The server allocates a new URL for this authorization and returns a
         #       201 (Created) response with the authorization URL in the Location
         #       header field and the JSON authorization object in the body.
-        # resp.status = falcon.HTTP_201
+        resp.status = falcon.HTTP_201
         # resp.set_header('Location', self.url_for('authz', authz.id))
         # resp.media = authz.to_response(challenges=[])
         resp.media = {
@@ -106,7 +104,7 @@ def validate_token_signature(token: str, audience: str, context: Context) -> Pre
     # We are relying on the JOSE implementation to actually check 'exp'.
     # Remember this if changing from python-jose to something else in the future!
     if 'exp' not in claims.get('crit', []):
-        error_msg = f'Extension "exp" not in header "crit": {_headers}'
+        error_msg = f'Extension "exp" not in pre-auth request "crit": {claims}'
         context.logger.error(error_msg)
         raise BadRequest(detail=error_msg)
     if 'exp' not in claims:

@@ -34,17 +34,15 @@ and put the generated certificates back into the ici-acme store.
 """
 
 
+import argparse
+import logging
+import logging.handlers
 import os
 import sys
-import time
-import logging
-import argparse
 
-import logging.handlers
 import inotify.adapters
 import yaml
 from inotify.constants import IN_MODIFY, IN_MOVED_TO
-
 
 _defaults = {'syslog': True,
              'debug': False,
@@ -157,6 +155,7 @@ def main(args, logger):
                     out.write('-----BEGIN CERTIFICATE REQUEST-----\n' +
                               data['csr'] + '\n' +
                               '-----END CERTIFICATE REQUEST-----\n')
+                logger.info(f'Wrote CSR from request {cert_id}.csr to file {out_fn}')
         elif path == args.ici_output_dir and filename.endswith('.pem'):
             cert_fn = os.path.join(path, filename)
             logger.info(f'Processing certificate in file {cert_fn}')
