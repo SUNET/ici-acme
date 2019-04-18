@@ -8,7 +8,7 @@ RENEW_CA_PATH: '/etc/ssl/certs/infra.crt'
 
 LOGGING:
   version: 1
-  disable_existing_loggers: true
+  disable_existing_loggers: false
   formatters:
     detailed:
       class: 'logging.Formatter'
@@ -17,7 +17,6 @@ LOGGING:
     console:
       class: 'logging.StreamHandler'
       level: 'DEBUG'
-      formatter: 'detailed'
     rotating:
       class: 'logging.handlers.RotatingFileHandler'
       filename: 'ici_acme.log'
@@ -31,6 +30,13 @@ LOGGING:
       mode: 'w'  # Will truncate debug log file on restart
       level: 'DEBUG'
       formatter: 'detailed'
+  loggers:
+    ici_acme:
+      propagate: false
+      handlers:
+        - 'console'
+        - 'rotating'
+        - 'debug'
   root:
     level: 'DEBUG'
     handlers:
