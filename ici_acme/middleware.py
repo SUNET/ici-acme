@@ -2,6 +2,7 @@
 
 import json
 from jose import jws
+from jose.constants import Algorithms
 from jose.exceptions import JOSEError
 from falcon import Request, Response
 from ici_acme.base import BaseResource
@@ -24,7 +25,7 @@ class HandleJOSE(object):
             if req.content_type != 'application/jose+json':
                 raise UnsupportedMediaTypeMalformed(detail=f'{req.content_type} is an unsupported media type')
 
-            supported_algorithms = ['RS256', 'ES256', 'ES384']
+            supported_algorithms = [Algorithms.RS256, Algorithms.ES256, Algorithms.ES384]
             data = req.media
             token = f'{data["protected"]}.{data["payload"]}.{data["signature"]}'
             self.context.logger.debug(f'HEADERS: {jws.get_unverified_headers(token)}')
@@ -52,7 +53,7 @@ class HandleJOSE(object):
             # Account registration
             elif req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
                 jwk = protected['jwk']
-                if not protected['alg'] not in supported_algorithms:
+                if protected['alg'] not in supported_algorithms:
                     raise BadSignatureAlgorithm(algorithms=supported_algorithms)
                 req.context['account_creation'] = True
             else:
