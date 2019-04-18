@@ -202,13 +202,14 @@ class BadRevocationReason(HTTPErrorDetail, falcon.HTTPBadRequest):
 class BadSignatureAlgorithm(HTTPErrorDetail, falcon.HTTPBadRequest):
 
     def __init__(self, **kwargs):
+        algorithms = kwargs.pop('algorithms')
         super().__init__(type='urn:ietf:params:acme:error:badSignatureAlgorithm', **kwargs)
         if not self.error_detail.title:
             self.error_detail.title = 'Bad signature algorithm'
         if not self.error_detail.detail:
             self.error_detail.detail = 'The JWS was signed with an algorithm the server does not support'
         if not self.error_detail.algorithms:
-            self.error_detail.algorithms = kwargs['algorithms']
+            self.error_detail.algorithms = algorithms
 
 
 class CAAForbids(HTTPErrorDetail, falcon.HTTPBadRequest):
