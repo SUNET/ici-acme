@@ -73,7 +73,8 @@ class Context(object):
         self.store.save('account', str(account_id), account.to_dict())
         return account
 
-    def get_account_using_kid(self, kid) -> Optional[Account]:
-        last_part = kid.split('/')[-1]
-        return self.store.load_account(last_part)
+    def get_account_using_kid(self, kid: Optional[str]) -> Optional[Account]:
+        if kid:
+            last_part = kid.split('/')[-1]
+            return self.store.load_account(last_part)
 

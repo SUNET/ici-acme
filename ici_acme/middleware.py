@@ -40,7 +40,7 @@ class HandleJOSE(object):
                 raise Unauthorized(detail=f'JWS header URL ({headers.get("url")})'
                                           f' does not match requested URL ({req.uri})')
             # Existing account
-            kid = headers['kid']
+            kid = headers.get('kid', None)
             account = self.context.get_account_using_kid(kid)
             if account:
                 if account.status != 'valid':
