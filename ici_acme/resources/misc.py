@@ -84,7 +84,7 @@ class DirectoryResource(BaseResource):
             'newNonce': self.url_for('new-nonce'),
             'newAccount': self.url_for('new-account'),
             'newOrder': self.url_for('new-order'),
-            #  (If the ACME server does not implement pre-authorization it MUST omit the 'newAuthz' field)
+            # If the ACME server does not implement pre-authorization it MUST omit the 'newAuthz' field
             'newAuthz': self.url_for('new-authz'),
             'revokeCert': self.url_for('revoke-cert'),
             'keyChange': self.url_for('key-change'),
@@ -95,6 +95,7 @@ class DirectoryResource(BaseResource):
                 # 'caaIdentities': ['example.com'],
                 # 'externalAccountRequired': False
             # }
+            # TODO:    Link: <https://example.com/acme/directory>;rel="index"
         }
 
 
