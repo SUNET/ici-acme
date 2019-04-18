@@ -60,7 +60,7 @@ class NewAccountResource(BaseResource):
 
     def on_post(self, req: Request, resp: Response):
         if req.context.get('account_creation') is True:
-            headers = req.context['jose_unverified_headers']
+            headers = req.context['jose_headers']
             if headers.get('onlyReturnExisting', False):
                 raise AccountDoesNotExist
             account = self.context.new_account(jwk=headers['jwk'], alg=headers['alg'])
