@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 
+import sys
+import yaml
 import falcon
+from os import environ
 
 from ici_acme import exceptions
 from ici_acme.context import Context
-from ici_acme.store import Store
 from ici_acme.middleware import HandleJOSE, HandleReplayNonce
 from ici_acme.resources.account import AccountResource, NewAccountResource
 from ici_acme.resources.misc import AuthorizationResource, ChallengeResource, CertificateResource, DirectoryResource
@@ -14,14 +16,18 @@ from ici_acme.resources.preauth import FakeAuthResource, PreAuthResource
 
 __author__ = 'lundberg'
 
-#    Content-Type: application/json
-#    Link: <https://example.com/acme/directory>;rel="index"
+# Read config
+config_path = environ.get('ICI_ACME_CONFIG')
+config = dict()
+if config_path:
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
 
-# gunicorn --reload ici_acme.app:api
-
-
-store = Store('data')
-context = Context(store)
+context = Context(config)
 context.logger.info('Starting app')
 
 api = falcon.API(middleware=[HandleJOSE(context), HandleReplayNonce(context)])
@@ -52,4 +58,4 @@ api.add_route('/account/{account_id}', AccountResource(context=context))
 # Development
 api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))  # TODO: Remove
 
-context.logger.info('app running..')
+context.logger.info('app running...')

@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import logging
-
+import logging.config
 from typing import Dict, Optional, Mapping
 
 from ici_acme.store import Store
@@ -13,20 +13,28 @@ from ici_acme.exceptions import BadNonce
 
 class Context(object):
 
-    def __init__(self, store: Store):
-        self.store = store
+    def __init__(self, config: Mapping):
+        self.config = config
+        self.store = Store(self.config.get('STORE_PATH', './data'))
         self._nonces: Dict[str, bool] = {}
 
-        self.schema: str = 'http'
-        self.server_name: str = 'localhost:8000'
-        self.application_root: str = ''
+        self.schema: str = self.config.get('SCHEMA', 'http')
+        self.server_name: str = self.config.get('SERVER_NAME', 'localhost:8000')
+        self.application_root: str = self.config.get('APPLICATION_ROOT', '')
 
-        self.token_ca_path = None
-        self.renew_ca_path = '/etc/ssl/certs/infra.crt'
+        self.token_ca_path: Optional[str] = self.config.get('TOKEN_CA_PATH', None)
+        self.renew_ca_path = self.config.get('RENEW_CA_PATH', '/etc/ssl/certs/infra.crt')
 
-        self.logger = logging.getLogger(__name__)
-        self.logger.addHandler(logging.StreamHandler(sys.stdout))
-        self.logger.setLevel(logging.DEBUG)
+        if self.config.get('LOGGING'):
+            logging.config.dictConfig(self.config.get('LOGGING'))
+            self.logger = logging.getLogger('ici_acme')
+        else:
+            self.logger = logging.getLogger('ici_acme')
+            sh = logging.StreamHandler(sys.stdout)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(module)s - %(levelname)s - %(message)s')
+            sh.setFormatter(formatter)
+            self.logger.addHandler(sh)
+            self.logger.setLevel(logging.DEBUG)
 
     def _check_nonce_format(self, nonce):
         # The value of the "nonce" header parameter MUST be an octet string, encoded according to the base64url
