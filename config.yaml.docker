@@ -1,0 +1,48 @@
+# Default-ish configuration for ICI ACME running in a Docker container
+#
+STORE_PATH: '/var/lib/ici_acme/data'
+SCHEMA: 'http'
+SERVER_NAME: 'localhost:8000'
+APPLICATION_ROOT: ''
+
+TOKEN_CA_PATH: '/var/lib/ici_acme/token_ca'
+RENEW_CA_PATH: '/var/lib/ici_acme/renew_ca'
+
+LOGGING:
+  version: 1
+  disable_existing_loggers: false
+  formatters:
+    detailed:
+      class: 'logging.Formatter'
+      format: '%(asctime)s - %(name)s - %(module)s - %(levelname)s - %(message)s'
+  handlers:
+    console:
+      class: 'logging.StreamHandler'
+      level: 'DEBUG'
+    rotating:
+      class: 'logging.handlers.RotatingFileHandler'
+      filename: 'ici_acme.log'
+      maxBytes: 500000
+      backupCount: 10
+      level: 'INFO'
+      formatter: 'detailed'
+    debug:
+      class: 'logging.FileHandler'
+      filename: 'ici_acme_debug.log'
+      mode: 'w'  # Will truncate debug log file on restart
+      level: 'DEBUG'
+      formatter: 'detailed'
+  loggers:
+    ici_acme:
+      propagate: false
+      handlers:
+        - 'console'
+        - 'rotating'
+        - 'debug'
+  root:
+    level: 'DEBUG'
+    handlers:
+      - 'console'
+      - 'rotating'
+      - 'debug'
+

@@ -1,0 +1,35 @@
+---
+version: '3'
+services:
+
+  ca:
+    image: 'ici_ca:latest'
+    volumes:
+      - /var/lib/ici:/var/lib/ici
+    environment:
+      - ICI_CA_NAME=example
+      - ICI_ISSUE_DAYS=5
+    command: /inotify_issue_and_publish.sh
+
+  acme:
+    image: 'ici_acme:latest'
+    volumes:
+      - ./config.yaml.docker:/etc/ici_acme/config.yaml:ro
+      - /var/lib/ici_acme:/var/lib/ici_acme
+    environment:
+      - ICI_ACME_CONFIG=/etc/ici_acme/config.yaml
+    depends_on:
+      - ca
+    ports:
+      - 8000:8000
+
+  interface:
+    image: 'ici_acme:latest'
+    volumes:
+      - /var/lib/ici_acme:/var/lib/ici_acme
+      - /var/lib/ici/example/requests:/var/lib/ici/example/requests
+      - /var/lib/ici/example/out-certs:/var/lib/ici/example/out-certs
+    depends_on:
+      - ca
+      - acme
+    command: /ici_acme/env/bin/python /ici_acme/src/tools/ici-interface.py --store_dir /var/lib/ici_acme/data/certificate --debug

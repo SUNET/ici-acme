@@ -24,4 +24,15 @@ docker_interface:
 			--store_dir /var/lib/ici_acme/data/certificate \
 			--debug
 
-.PHONY: docker_build docker_run
+compose_up:
+	./bin/docker-compose -p ici -f ici-compose.yaml up -d
+
+compose_down: compose_stop
+
+compose_stop:
+	./bin/docker-compose -p ici -f ici-compose.yaml stop
+
+compose_logs:
+	./bin/docker-compose -p ici -f ici-compose.yaml logs -f
+
+.PHONY: docker_build docker_run compose_up compose_down compose_stop compose_logs
