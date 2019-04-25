@@ -13,6 +13,7 @@ from typing import Mapping, Optional
 
 import pkcs11
 import requests
+import yaml
 from pkcs11 import Attribute, ObjectClass, KeyType
 from OpenSSL import crypto
 from jose import jwk, jws
@@ -30,12 +31,13 @@ class P11Params(object):
     pin: Optional[str]
     token_label: Optional[str]
     label: str
+    id: int
 
 
 # This global variable (sigh) will be filled with values after argument parsing.
 # The P11Key class makes use of these values in the global variable (sigh) when
 # the JOSE library instantiates them.
-P11Key_params = P11Params(module='', pin=None, token_label=None, label='')
+P11Key_params = P11Params(module='', pin=None, token_label=None, label='', id=None)
 
 
 class P11Key(jwk.Key):
@@ -49,20 +51,41 @@ class P11Key(jwk.Key):
         self._mechanism = None
         self.p11 = p11
 
+        logger.debug(f'Initialising PKCS#11 module: {self.p11.module}')
         self.lib = pkcs11.lib(self.p11.module)
+        for _slot in self.lib.get_slots():
+            logger.debug(f'Slot: {_slot}')
+
+        logger.debug(f'Looking for token {repr(self.p11.token_label)}')
         self.token = self.lib.get_token(token_label=self.p11.token_label)
 
-        logger.debug('Loaded module {} (key {}, alg {})'.format(self.lib, key, algorithm))
+        logger.debug(f'Loaded module {self.lib} (key {key}, alg {algorithm})')
 
     def _load_key(self, session) -> None:
         if self._public_key is not None and self._private_key is not None:
             return
+
+        if self._private_key is None:
+            self._load_key2(session, key_type=ObjectClass.PRIVATE_KEY,
+                            cka_label=self.p11.label, cka_id=self.p11.id)
+
+        if self._public_key is None:
+            self._load_key2(session, key_type=ObjectClass.PUBLIC_KEY,
+                            cka_label=self.p11.label, cka_id=self.p11.id)
+
+    def _load_key2(self, session, key_type, cka_label: Optional[str] = None, cka_id: Optional[int] = None):
         #key = session.get_key(label=self.p11.label, key_type=pkcs11.ObjectClass.PRIVATE_KEY)
-        attrs = {Attribute.KEY_TYPE: ObjectClass.PRIVATE_KEY,
-                 Attribute.LABEL: self.p11.label,
+        attrs = {Attribute.KEY_TYPE: key_type,
+                 #Attribute.LABEL: self.p11.label,
                  }
+        if cka_label is not None:
+            attrs[Attribute.LABEL] = cka_label
+        if cka_id is not None:
+            attrs[Attribute.ID] = cka_id
+        logger.debug(f'Looking for key {attrs} in session {session}')
         # SoftHSM2 returns both private and public keys
         for this in session.get_objects(attrs):
+            logger.debug(f'Object: {this}')
             if this.object_class == ObjectClass.PUBLIC_KEY:
                 self._public_key = this
                 p = this[Attribute.EC_POINT]
@@ -80,6 +103,10 @@ class P11Key(jwk.Key):
     def sign(self, msg: bytes) -> bytes:
         with self.token.open(user_pin=self.p11.pin) as session:
             self._load_key(session)
+
+            if not self._private_key:
+                raise RuntimeError('Could not load private key')
+
             logger.debug(f'Signing data: {msg}')
             if self._mechanism == pkcs11.Mechanism.ECDSA:
                 msg = hashlib.sha256(msg).digest()
@@ -92,19 +119,30 @@ class P11Key(jwk.Key):
         with self.token.open(user_pin=self.p11.pin) as session:
             self._load_key(session)
 
+            if not self._public_key:
+                raise RuntimeError('Could not load public key')
+
+
             logger.debug(f'Verifying signature, data: {msg}')
             logger.debug(f'Signature: {binascii.hexlify(sig)}')
+            import pkcs11.util.ec
+            logger.debug(f'Encoded signature: {binascii.hexlify(pkcs11.util.ec.encode_ecdsa_signature(sig))}')
             if self._mechanism == pkcs11.Mechanism.ECDSA:
                 msg = hashlib.sha256(msg).digest()
                 logger.debug(f'SHA-256 hashed into new data: {binascii.hexlify(msg)}')
 
-            if not self._public_key.verify(msg, sig, mechanism=self._mechanism):
+            res = self._public_key.verify(msg, sig, mechanism=self._mechanism)
+            logger.debug(f'Verify result: {res}')
+            if not res:
                 raise RuntimeError('Signature failed validation')
         return True
 
     def get_jwk_alg(self) -> str:
         with self.token.open(user_pin=self.p11.pin) as session:
             self._load_key(session)
+
+            if not self._public_key:
+                raise RuntimeError('Could not load public key')
 
             if self._public_key.key_type == KeyType.RSA:
                 return 'RS256'
@@ -130,10 +168,10 @@ def parse_args(defaults: Mapping):
                         type=str, required=True,
                         help='Certificate to sign token with',
     )
-    parser.add_argument('--label',
-                        dest='label',
+    parser.add_argument('--token_label',
+                        dest='token',
                         type=str, required=True,
-                        help='PKCS#11 CKA_LABEL of key to use to sign token',
+                        help='PKCS#11 token label where the key resides',
     )
 
     # Optional arguments
@@ -147,11 +185,6 @@ def parse_args(defaults: Mapping):
                         type=str, default=defaults['module'],
                         help='PKCS#11 module',
     )
-    parser.add_argument('--token-label',
-                        dest='token',
-                        type=str,
-                        help='PKCS#11 token label where the key resides',
-    )
     parser.add_argument('--pin',
                         dest='pin',
                         type=str,
@@ -162,12 +195,28 @@ def parse_args(defaults: Mapping):
                         type=str, default=defaults['url'],
                         help='ACME server URL (to the directory endpoint)',
     )
+    parser.add_argument('--label',
+                        dest='cka_label',
+                        type=str, default=None,
+                        help='PKCS#11 CKA_LABEL of key to use to sign token',
+    )
+    parser.add_argument('--cka_id',
+                        dest='cka_id',
+                        type=int, default=None,
+                        help='PKCS#11 CKA_ID of key to use to sign token',
+    )
+    parser.add_argument('--output_file',
+                        dest='output_file',
+                        type=str, default=None, metavar='YAMLFILE',
+                        help='Write generated token to this file',
+    )
 
     args = parser.parse_args()
     global P11Key_params
     P11Key_params.module = args.module
     P11Key_params.token_label = args.token
-    P11Key_params.label = args.label
+    P11Key_params.label = args.cka_label
+    P11Key_params.id = args.cka_id
     P11Key_params.pin = args.pin
 
     return args
@@ -175,38 +224,63 @@ def parse_args(defaults: Mapping):
 
 def main(args: argparse.Namespace, logger: logging.Logger):
     now = datetime.datetime.now(tz=datetime.timezone.utc)
+    expire = now + datetime.timedelta(minutes=5)
     directory = get_acme_directory(args.url)
 
     with open(args.cert, 'rb') as fd:
         cert_pem = fd.read()
 
     certificate = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
-    headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')]}
+    headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')],
+               'url': directory['newAuthz'],
+               }
     claims = {'names': args.names,
               'nonce': get_acme_nonce(directory),
-              'aud': directory.get('newAuthz'),
+              'aud': directory['newAuthz'],
               'iat': int(now.timestamp()),
-              'exp': int((now + datetime.timedelta(minutes=5)).timestamp()),
+              'exp': int(expire.timestamp()),
               'crit': ['exp'],
               }
-    token = pkcs11_jws_sign(claims, args.label, headers=headers)
+    token = pkcs11_jws_sign(claims, args.cka_label, headers=headers)
     logger.debug(f'JWS: {token}')
 
-    # Verify token using PKCS#11. This step is not really necessary, but
-    # the code seemed like it could be useful sometime somewhere so why not.
-    verified = pkcs11_jws_verify(token)
-    logger.debug(f'PKCS#11 verification result: {verified}')
+    try:
+        # Verify token using PKCS#11. This step is not really necessary, but
+        # the code seemed like it could be useful sometime somewhere so why not.
+        verified = pkcs11_jws_verify(token)
+        logger.debug(f'PKCS#11 verification result: {verified}')
+    except Exception:
+        logger.exception('FAILED verifying signature using PKCS#11')
 
     # Verify the token by extracting the public key from the certificate, just like
     # the ICI ACME server this token will be passed to will do. This ensures the
     # certificate provided (in a file) matches the private key used (PKCS#11).
     pubkey_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, certificate.get_pubkey())
-    verified = jws.verify(token, pubkey_pem.decode('utf-8'), [jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
-    logger.debug(f'Verification result: {verified}')
+    try:
+        verified = jws.verify(token, pubkey_pem.decode('utf-8'), [jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
+        logger.debug(f'Verification result: {verified}')
+    except Exception:
+        logger.exception('FAILED verifying signature using cryptography')
 
-    while token:
-        print(token[:80])
-        token = token[80:]
+    if args.output_file:
+        # Write some extra info besides the token. The extra info should not be used
+        # anywhere except by humans. All the extra info is already included in the
+        # token, but then you have to parse the token to figure out the audience URL
+        # for example.
+        data = {'acme_url': args.url,
+                'issue_ts': now,
+                'expire_ts': expire,
+                'token': token,
+                'names': args.names,
+                }
+        with open(args.output_file, 'w') as fd:
+            fd.write('---\n')
+            yaml.safe_dump(data, fd)
+        logger.info(f'Wrote ICI ACME token to file {args.output_file}')
+    else:
+        while token:
+            print(token[:80])
+            token = token[80:]
     return True
 
 

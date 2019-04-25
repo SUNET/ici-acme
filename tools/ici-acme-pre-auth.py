@@ -13,6 +13,7 @@ import logging.handlers
 from base64 import b64encode
 from typing import Mapping
 
+import yaml
 from OpenSSL import crypto as openssl_crypto
 import jose
 import jose.constants
@@ -34,28 +35,6 @@ def parse_args(defaults: Mapping):
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                      )
 
-    # Positional arguments
-    # Optional arguments
-    parser.add_argument('--dehydrated_account_dir',
-                        dest='dehydrated_account_dir',
-                        type=str, required=True,
-                        help='Account directory',
-                        )
-    parser.add_argument('--mode',
-                        dest='mode',
-                        type=str, default=defaults['mode'],
-                        help='Pre auth mode',
-                        )
-    parser.add_argument('--cert',
-                        dest='existing_cert',
-                        type=str, required=False,
-                        help='Path to existing certificate',
-                        )
-    parser.add_argument('--key',
-                        dest='private_key',
-                        type=str, required=False,
-                        help='Path to existing private key',
-                        )
     parser.add_argument('--debug',
                         dest='debug',
                         action='store_true', default=defaults['debug'],
@@ -71,6 +50,42 @@ def parse_args(defaults: Mapping):
                         type=str, default=defaults['url'],
                         help='API URL',
                         )
+
+    parser.add_argument('--dehydrated_account_dir',
+                        dest='dehydrated_account_dir',
+                        type=str, required=True,
+                        help='Account directory',
+                        )
+    #parser.add_argument('--mode',
+    #                    dest='mode',
+    #                    type=str, default=defaults['mode'],
+    #                    help='Pre auth mode',
+    #                    )
+
+    subparsers = parser.add_subparsers(help='sub-commands')
+
+    renew = subparsers.add_parser('renew', help='Renew a still valid certificate')
+    renew.set_defaults(mode='renew')
+
+    renew.add_argument('--cert',
+                       dest='existing_cert',
+                       type=str, required=False,
+                       help='Path to existing certificate',
+                       )
+    renew.add_argument('--key',
+                       dest='private_key',
+                       type=str, required=False,
+                       help='Path to existing private key',
+                       )
+
+    init = subparsers.add_parser('init', help='Request a new certificate')
+    init.set_defaults(mode='init')
+    init.add_argument('--token_file',
+                      dest='token_file',
+                      type=str, required=True, metavar='YAMLFILE',
+                      help='Path to file with an ICI ACME pre-auth token (generated with ici-preauth-token.py)',
+                      )
+
     args = parser.parse_args()
     return args
 
@@ -123,6 +138,7 @@ def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: M
     key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
     with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
         reg_info = json.loads(fd.read())
+    logger.debug(f'ACME account: {reg_info.get("id")}')
     headers = {'kid': str(reg_info['id']),
                'url': directory['newAuthz'],
                'nonce': get_acme_nonce(directory),
@@ -135,16 +151,15 @@ def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: M
     return token
 
 
-def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str, directory: Mapping) -> str:
-
-    existing_certificate = load_pem(existing_certificate_path)
+def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
+    existing_certificate = load_pem(args.existing_cert)
     certificate = b64encode(openssl_crypto.dump_certificate(
         openssl_crypto.FILETYPE_ASN1, existing_certificate)).decode('utf-8')
 
     headers = {'x5c': [certificate],  # chain, one cert per element
                }
 
-    key = load_private_key(existing_key_path)
+    key = load_private_key(args.private_key)
     _key = key.to_dict()
 
     now = datetime.datetime.utcnow()
@@ -158,8 +173,8 @@ def create_renew_pre_auth(existing_certificate_path: str, existing_key_path: str
     return token
 
 
-def post_pre_auth(dehydrated_path: str, directory: Mapping, data: str) -> bool:
-    signed = dehydrated_account_sign(data, dehydrated_path, directory)
+def post_pre_auth(token: str, directory: Mapping, args: argparse.Namespace) -> bool:
+    signed = dehydrated_account_sign(token, args.dehydrated_account_dir, directory)
     logger.debug(f'Signed data: {signed}')
 
     _elem = signed.split('.')
@@ -172,7 +187,7 @@ def post_pre_auth(dehydrated_path: str, directory: Mapping, data: str) -> bool:
     r = requests.post(directory['newAuthz'], json=req_data, headers=headers)
     logger.debug('Response from server: {}\n{}\n'.format(r, r.text))
     if r.status_code != 201:
-        logger.error(f'Error response from server (endpoint {directory["newAuthz"]}): {r} {r.text}')
+        logger.error(f'Error response from server (endpoint {directory["newAuthz"]}):\n{r} {r.text}')
         return False
     return True
 
@@ -200,12 +215,14 @@ def main():
         progname = os.path.basename(sys.argv[0])
         args = parse_args(_defaults)
         _config_logger(args, progname)
-        res = False
+        directory = get_acme_directory(args.url)
         if args.mode == 'renew':
-            directory = get_acme_directory(args.url)
-
-            pre_auth = create_renew_pre_auth(args.existing_cert, args.private_key, directory)
-            res = post_pre_auth(args.dehydrated_account_dir, directory, pre_auth)
+            token = create_renew_pre_auth(directory, args)
+        elif args.mode == 'init':
+            with open(args.token_file, 'r') as fd:
+                data = yaml.safe_load(fd)
+                token = data['token']
+        res = post_pre_auth(token, directory, args)
 
         if res is True:
             sys.exit(0)
