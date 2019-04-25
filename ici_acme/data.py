@@ -52,7 +52,7 @@ class Authorization(StoreObject):
     identifier: dict
     challenge_ids: List[str]
 
-    def to_response(self, challenges: List) -> Mapping:
+    def to_response(self, challenges: List[Mapping]) -> Mapping:
         data = {
             'status': self.status,
             'identifier': self.identifier,

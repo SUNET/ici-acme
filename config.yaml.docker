@@ -8,6 +8,10 @@ APPLICATION_ROOT: ''
 TOKEN_CA_PATH: '/var/lib/ici_acme/token_ca'
 RENEW_CA_PATH: '/var/lib/ici_acme/renew_ca'
 
+PREAUTH_DOMAINS: ['.test']
+# Avoid having to patch dehydrated to accepting x-sunet-01
+ACME_PREAUTH_METHOD: 'http-01'
+
 LOGGING:
   version: 1
   disable_existing_loggers: false

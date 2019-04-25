@@ -3,15 +3,16 @@ import datetime
 import json
 import os
 import random
+from typing import List, Mapping, Sequence
 
 import falcon
 from falcon import Request, Response
 
 from ici_acme.base import BaseResource
 from ici_acme.csr import validate
-from ici_acme.data import Account, Order, Certificate, Challenge, Authorization
+from ici_acme.data import Account, Authorization, Certificate, Order
+from ici_acme.exceptions import MissingParamMalformed, OrderNotReady, RejectedIdentifier
 from ici_acme.utils import b64_decode, b64_encode
-from ici_acme.exceptions import MissingParamMalformed, OrderNotReady
 
 
 class OrderListResource(BaseResource):
@@ -68,6 +69,7 @@ class OrderResource(BaseResource):
         if order.status == 'pending':
             # check if any authorizations are now valid, in which case the order should
             # proceed to 'ready'
+            valid_count = 0
             for authz_id in order.authorization_ids:
                 auth = self.context.store.load_authorization(authz_id)
                 if auth.status == 'pending':
@@ -75,12 +77,19 @@ class OrderResource(BaseResource):
                     for chall_id in auth.challenge_ids:
                         challenge = self.context.store.load_challenge(chall_id)
                         if challenge.status == 'valid':
+                            self.context.logger.info(f'Challenge {chall_id} valid, setting authorization {auth.id} '
+                                                     f'status to valid')
                             auth.status = 'valid'
+                            self.context.logger.debug(f'Challenge: {challenge}')
+                            self.context.logger.debug(f'Authorization: {auth}')
                             self.context.store.save('authorization', auth.id, auth.to_dict())
                 if auth.status == 'valid':
-                    order.status = 'ready'
-                    break
-                self.context.logger.info(f'Authorization {auth} still not valid')
+                    valid_count += 1
+                else:
+                    self.context.logger.info(f'Authorization {auth} still not valid')
+            if valid_count and valid_count == len(order.authorization_ids):
+                self.context.logger.info(f'All {valid_count} authorizations are valid, marking order as ready')
+                order.status = 'ready'
 
         if order.status == 'ready':
             if order.certificate_id is not None:
@@ -137,41 +146,8 @@ class NewOrderResource(BaseResource):
         if not acme_request.get('identifiers'):
             raise MissingParamMalformed(param_name='identifiers')
 
-        authorizations = []
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        for ident in acme_request['identifiers']:
-            challenge_id = b64_encode(os.urandom(128 // 8))
-            chall = Challenge(id=challenge_id,
-                              type='x-sunet-01',
-                              url=self.url_for('challenge', challenge_id),
-                              status='valid',
-                              created=now,
-                              # token for type='http-01'
-                              #token=b64_urlsafe(os.urandom(256 // 8)),
-                              # token for type='x-sunet-01'
-                              token=challenge_id,
-                              )
-            self.context.store.save('challenge', chall.id, chall.to_dict())
-            authz = Authorization(id=b64_encode(os.urandom(128 // 8)),
-                                  status='pending',
-                                  created=now,
-                                  expires=now + datetime.timedelta(minutes=5),
-                                  identifier=ident,
-                                  challenge_ids=[chall.id],
-                                  )
-            self.context.store.save('authorization', authz.id, authz.to_dict())
-            authorizations += [authz]
-
-        order = Order(id=b64_encode(os.urandom(128 // 8)),
-                      created=datetime.datetime.now(tz=datetime.timezone.utc),
-                      identifiers=acme_request['identifiers'],
-                      authorization_ids=[x.id for x in authorizations],
-                      status='pending',
-                      expires=now + datetime.timedelta(minutes=3),
-                      )
         account = req.context['account']
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
-        account.last_order = now
         # remove any expired orders on this account
         for this in account.order_ids:
             expires = this['expires'].replace(tzinfo=datetime.timezone.utc)
@@ -186,11 +162,28 @@ class NewOrderResource(BaseResource):
                 self.context.store.delete('authorization', this['id'])
                 account.preauth_ids.remove(this)
                 self.context.logger.info(f'Removed expired pre-auth {this["id"]}')
+
+        authorizations = self._get_authorizations(acme_request['identifiers'], now, account)
+
+        if not authorizations:
+            raise RejectedIdentifier(detail='Pre-authorization required')
+
+        order = Order(id=b64_encode(os.urandom(128 // 8)),
+                      created=datetime.datetime.now(tz=datetime.timezone.utc),
+                      identifiers=acme_request['identifiers'],
+                      authorization_ids=[x.id for x in authorizations],
+                      status='pending',
+                      expires=now + datetime.timedelta(minutes=3),
+                      )
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        account.last_order = now
         account.order_ids += [{'id': order.id,
                                'expires': order.expires,
                                }]
         self.context.store.save('order', order.id, order.to_dict())
         self.context.store.save('account', account.id, account.to_dict())
+        self.context.logger.debug(f'Account: {account}')
+        self.context.logger.debug(f'Order: {order}')
         resp.media = {
             'status': 'pending',
             'identifiers': order.identifiers,
@@ -199,3 +192,27 @@ class NewOrderResource(BaseResource):
         }
         resp.set_header('Location', self.url_for('order', order.id))
         resp.status = falcon.HTTP_201
+
+    def _get_authorizations(self, identifiers: Mapping, now: datetime, account: Account) -> Sequence[Authorization]:
+        pre_auths: List[Authorization] = []
+        for this in account.preauth_ids:
+            _pre_auth = self.context.store.load_authorization(this['id'])
+            pre_auths += [_pre_auth]
+
+        res = []
+        for ident in identifiers:
+            # check if there exists a pre-authorization for this identifier, if so - use that one
+            for pre_auth in pre_auths:
+                if pre_auth.identifier == ident:
+                    self.context.logger.info(f'Using pre-authorization {pre_auth.id} for identifier {ident}')
+                    self.context.logger.debug(pre_auth)
+                    self.context.store.save('authorization', pre_auth.id, pre_auth.to_dict())
+                    res += [pre_auth]
+
+                    # remove pre-auth from account when used (yes, this is full of race conditions)
+                    account.preauth_ids = [x for x in account.preauth_ids if x['id'] != pre_auth.id]
+                    self.context.store.save('account', account.id, account.to_dict())
+                    self.context.logger.debug(f'Account after removing pre-auth {pre_auth}: {account}')
+
+        return res
+

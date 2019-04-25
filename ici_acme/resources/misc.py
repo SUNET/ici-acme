@@ -58,6 +58,8 @@ class ChallengeResource(BaseResource):
     def on_post(self, req: Request, resp: Response, challenge_id):
         challenge = self.context.store.load_challenge(challenge_id)
         self.context.logger.info(f'Processing challenge {challenge}')
+        # TODO: Implement expiration here, if a client just keeps polling the Challenge resource
+        #       (e.g. relying on ICI ACME pre-auth, but failed to provide a pre-auth before creating the order)
         resp.media = challenge.to_response()
 
 

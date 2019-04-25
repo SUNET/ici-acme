@@ -1,7 +1,5 @@
 import logging
-from typing import Union, List
-
-from OpenSSL import crypto
+from typing import List, Union
 
 from ici_acme.context import Context
 from ici_acme.policy import PreAuthToken

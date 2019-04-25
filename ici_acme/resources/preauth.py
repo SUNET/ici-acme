@@ -9,7 +9,7 @@ from jose import jwk, jws, jwt
 
 from ici_acme.base import BaseResource
 from ici_acme.context import Context
-from ici_acme.data import Authorization
+from ici_acme.data import Authorization, Challenge
 from ici_acme.exceptions import BadRequest, RejectedIdentifier
 from ici_acme.policy import PreAuthToken, get_authorized_names
 from ici_acme.policy.x509 import get_public_key
@@ -58,7 +58,21 @@ class PreAuthResource(BaseResource):
         # accounts preauth_ids so that they will be found in newOrder
         account = req.context['account']
         now = datetime.datetime.now(tz=datetime.timezone.utc)
+        authz = None
+        chall = None
         for name in authorized_for_names:
+            challenge_id = b64_encode(os.urandom(128 // 8))
+            acme_method = self.context.config.get('ACME_PREAUTH_METHOD', 'x-sunet-01')
+            chall = Challenge(id=challenge_id,
+                              type=acme_method,
+                              url=self.url_for('challenge', challenge_id),
+                              status='valid',
+                              created=now,
+                              validated=now,
+                              token=challenge_id if acme_method == 'http-01' else None,
+                              )
+            self.context.store.save('challenge', chall.id, chall.to_dict())
+
             ident = {'type': 'dns',
                      'value': name,
                      }
@@ -67,7 +81,7 @@ class PreAuthResource(BaseResource):
                                   created=now,
                                   expires=now + datetime.timedelta(minutes=5),
                                   identifier=ident,
-                                  challenge_ids=[],
+                                  challenge_ids=[challenge_id],
                                   )
             self.context.store.save('authorization', authz.id, authz.to_dict())
             self.context.logger.info(f'Created pre-authorization {authz}')
@@ -75,15 +89,17 @@ class PreAuthResource(BaseResource):
                                      'expires': authz.expires,
                                      }]
         self.context.store.save('account', account.id, account.to_dict())
-        # TODO: The server allocates a new URL for this authorization and returns a
-        #       201 (Created) response with the authorization URL in the Location
-        #       header field and the JSON authorization object in the body.
         resp.status = falcon.HTTP_201
-        # resp.set_header('Location', self.url_for('authz', authz.id))
-        # resp.media = authz.to_response(challenges=[])
-        resp.media = {
-            'status': 'OK'
-        }
+        if len(authorized_for_names) == 1 and authz:
+            # RFC compliant response, when the request was RFC compliant (meaning a
+            # preauth request for a single identifier)
+            resp.set_header('Location', self.url_for('authz', authz.id))
+            resp.media = authz.to_response(challenges=[chall.to_response()])
+        else:
+            # non-RFC compliant responses for non-compliant clients ;)
+            resp.media = {
+                'status': 'OK'
+            }
 
 
 def validate_token_signature(token: str, audience: str, context: Context) -> PreAuthToken:
