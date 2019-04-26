@@ -55,7 +55,4 @@ api.add_route('/certificate/{certificate_id}', CertificateResource(context=conte
 # AccountResource
 api.add_route('/account/{account_id}', AccountResource(context=context))
 
-# Development
-api.add_route('/fakeauth/{client_data}', FakeAuthResource(context=context))  # TODO: Remove
-
 context.logger.info('app running...')

@@ -75,6 +75,8 @@ class Context(object):
 
     def get_account_using_kid(self, kid: Optional[str]) -> Optional[Account]:
         if kid:
-            last_part = kid.split('/')[-1]
-            return self.store.load_account(last_part)
-
+            try:
+                last_part = kid.split('/')[-1]
+                return self.store.load_account(last_part)
+            except TypeError:  # There is no such account
+                pass

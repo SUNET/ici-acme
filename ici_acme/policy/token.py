@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 def is_valid_preauth_token(preauth: PreAuthToken, ca_path: str, context: Context) -> Union[bool, List[str]]:
     """
     Check if a pre-auth token (probably for a new host) is valid, and return the host name(s).
-
-    :param ca_path: Path to CA store validating the x5c certificate in the token
-    :param context: ICI ACME context
     """
     if not is_valid_x509_cert(preauth.cert, ca_path):
         logger.warning(f'Certificate in preauth-token failed to validate with ca_path {ca_path}')
