@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#
+# Get a new certificate or renew existing one from an ICI ACME server.
+#
+# NOTE: This script uses a different JOSE implementation because this one
+#       (josepy) is available as a Debian package (python3-josepy), and
+#       this script has to run on every host that needs a certificate.
+#       We don't run josepy everywhere since it does not currently support
+#       signing tokens with ECDSA keys.
+#
 
 import os
 import sys
@@ -15,9 +24,7 @@ from typing import Mapping
 
 import yaml
 from OpenSSL import crypto as openssl_crypto
-import jose
-import jose.constants
-from jose import jwt, jwk
+import josepy as jose
 
 logger = logging.getLogger()
 
@@ -109,18 +116,19 @@ def _config_logger(args: argparse.Namespace, progname: str):
         logger.addHandler(syslog_h)
 
 
-def load_private_key(path: str):
+def load_private_key(path: str) -> jose.JWK:
     try:
-        with open(path, 'r') as fd:
+        with open(path, 'rb') as fd:
             pem = fd.read(1024 * 1024)
-            if 'BEGIN EC' in pem:
-                # TODO: need to parse the key to see if it is ES256 or some other curve
-                return jwk.construct(pem, jose.constants.ALGORITHMS.ES256)
-            else:
-                return jwk.construct(pem, jose.constants.ALGORITHMS.RS256)
-    except TypeError as e:
-        logger.error(f'Could not load key from {path}')
-        logger.error(e)
+            logger.info('PEM IS {!r}'.format(pem))
+            return jose.JWK.load(pem)
+            #if 'BEGIN EC' in pem:
+            #    # TODO: need to parse the key to see if it is ES256 or some other curve
+            #    return jwk.construct(pem, jose.constants.ALGORITHMS.ES256)
+            #else:
+            #    return jwk.construct(pem, jose.constants.ALGORITHMS.RS256)
+    except TypeError:
+        logger.exception(f'Could not load key from {path}')
         sys.exit(1)
 
 
@@ -128,13 +136,17 @@ def load_pem(path: str):
     try:
         with open(path, 'rb') as fd:
             return openssl_crypto.load_certificate(openssl_crypto.FILETYPE_PEM, fd.read())
-    except TypeError as e:
-        logger.error(f'Could not load certificate from {path}')
-        logger.error(e)
+    except TypeError:
+        logger.exception(f'Could not load certificate from {path}')
         sys.exit(1)
 
 
-def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: Mapping) -> str:
+class AcmeHeader(jose.jws.Header):
+    url = jose.json_util.Field('url', omitempty=True)
+    nonce = jose.json_util.Field('nonce', omitempty=True)
+
+
+def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: Mapping) -> jose.JWS:
     key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
     with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
         reg_info = json.loads(fd.read())
@@ -146,8 +158,12 @@ def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: M
     # because of bugs in the jose implementation in used, we must wrap the token in a Mapping
     # and use jwt.encode instead of just calling jws.sign(data, ...)
     claims = {'token': data}
-    _key = key.to_dict()
-    token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
+    #_key = key.to_dict()
+    #token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
+    jose.jws.Signature.header_cls = AcmeHeader
+    token = jose.JWS.sign(payload=json.dumps(claims).encode(), key=key, alg=jose.RS256, include_jwk=False,
+                          protect={'alg', 'url', 'nonce', 'kid'},
+                          **headers)
     return token
 
 
@@ -169,7 +185,8 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
               'aud': directory['newAuthz'],
               'crit': ['exp'],
               }
-    token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
+    # token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
+    token = jose.JWS.sign(payload=claims, headers=headers, key=key, alg=jose.RS256)
     return token
 
 
@@ -177,7 +194,7 @@ def post_pre_auth(token: str, directory: Mapping, args: argparse.Namespace) -> b
     signed = dehydrated_account_sign(token, args.dehydrated_account_dir, directory)
     logger.debug(f'Signed data: {signed}')
 
-    _elem = signed.split('.')
+    _elem = signed.to_compact().decode('utf-8').split('.')
     req_data = {'protected': _elem[0],
                 'payload': _elem[1],
                 'signature': _elem[2],
@@ -193,7 +210,8 @@ def post_pre_auth(token: str, directory: Mapping, args: argparse.Namespace) -> b
 
 
 def get_acme_directory(url: str) -> dict:
-    r = requests.get(url, json={})
+    r = requests.get(url)
+    logger.debug(f'Fetched ACME directory from {url}: {r}')
     directory = r.json()
     if 'newNonce' not in directory:
         raise RuntimeError(f'No newNonce endpoint returned from ACME server at {url}')
