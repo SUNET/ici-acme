@@ -69,6 +69,9 @@ class Context(object):
     def new_account(self, jwk: dict, alg: str) -> Account:
         # Use an integer account_id to be compatible with LetsEncrypt pre-RFC8555 'id' parameter
         account_id = str(int(time.time()))  # TODO: make sure there is no account with this ID already
+        if self.get_account_using_kid(account_id) is not None:
+            self.logger.warning(f'Account {account_id} already exists')
+            raise RuntimeError(f'Was about to overwrite account {account_id}')
         account = Account(id=account_id, status='valid', jwk=jwk, alg=alg)
         self.store.save('account', str(account_id), account.to_dict())
         return account
