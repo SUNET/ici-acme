@@ -10,6 +10,7 @@
 #
 
 import argparse
+import base64
 import datetime
 import json
 import logging
@@ -19,6 +20,7 @@ import sys
 from base64 import b64encode
 from typing import Mapping, Optional, NewType
 
+import OpenSSL
 import josepy as jose
 import requests
 import yaml
@@ -200,6 +202,15 @@ class AcmeHeader(jose.jws.Header):
     url = jose.json_util.Field('url', omitempty=True)
     nonce = jose.json_util.Field('nonce', omitempty=True)
 
+    x5c = jose.json_util.Field('x5c', omitempty=True, default=())
+
+    # The Header x5c encoder has an encoding bug in Python3. It returns bytes,
+    # but then the JSON encoder fails saying it can't serialize bytes. This
+    # is a copy of that function with ".decode('utf-8')" added.
+    @x5c.encoder  # type: ignore
+    def x5c(value):  # pylint: disable=missing-docstring,no-self-argument
+        return [base64.b64encode(OpenSSL.crypto.dump_certificate(
+            OpenSSL.crypto.FILETYPE_ASN1, cert.wrapped)).decode('utf-8') for cert in value]
 
 def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Namespace) -> jose.JWS:
     info = load_dehydrated_info(args)
@@ -223,8 +234,7 @@ def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Name
 
 def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
     existing_certificate = load_pem(args.existing_cert)
-    certificate = b64encode(openssl_crypto.dump_certificate(
-        openssl_crypto.FILETYPE_ASN1, existing_certificate)).decode('utf-8')
+    certificate = jose.util.ComparableX509(existing_certificate)
 
     headers = {'x5c': [certificate],  # chain, one cert per element
                }
@@ -233,13 +243,17 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
 
     now = datetime.datetime.utcnow()
     claims = {'renew': True,
-              'exp': now + datetime.timedelta(seconds=300),
-              'iat': datetime.datetime.utcnow(),
+              'exp': (now + datetime.timedelta(seconds=300)).isoformat(),
+              'iat': datetime.datetime.utcnow().isoformat(),
               'aud': directory['newAuthz'],
               'crit': ['exp'],
               }
-    token = jose.JWS.sign(payload=claims, headers=headers, key=info.private_key, alg=info.alg)
-    return token
+    jose.jws.Signature.header_cls = AcmeHeader
+    token = jose.JWS.sign(payload=json.dumps(claims).encode(),
+                          key=info.private_key, alg=info.alg, include_jwk=False,
+                          protect={'alg', 'x5c'},
+                          **headers)
+    return token.to_compact().decode('utf-8')
 
 
 def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) -> bool:
@@ -291,7 +305,7 @@ def main():
             info = load_dehydrated_info(args)
             if info and info.url is not None:
                 # TODO: Verify account using newAccount with onlyReturnExisting=True.
-                logger.debug(f'Dehydrated account for URL {info .url} found')
+                logger.debug(f'Dehydrated account for URL {info.url} found')
                 res = True
         elif args.mode in ['renew', 'init']:
             if args.mode == 'renew':
