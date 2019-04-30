@@ -9,22 +9,20 @@
 #       signing tokens with ECDSA keys.
 #
 
-import os
-import sys
-import json
 import argparse
-import requests
 import datetime
-
+import json
 import logging
 import logging.handlers
-
+import os
+import sys
 from base64 import b64encode
-from typing import Mapping
+from typing import Mapping, Optional, NewType
 
+import josepy as jose
+import requests
 import yaml
 from OpenSSL import crypto as openssl_crypto
-import josepy as jose
 
 logger = logging.getLogger()
 
@@ -34,6 +32,9 @@ _defaults = {
     'mode': 'renew',
     'url': 'http://localhost:8000/',
 }
+
+
+Endpoints = NewType('EndPoints', dict)
 
 
 def parse_args(defaults: Mapping):
@@ -116,20 +117,63 @@ def _config_logger(args: argparse.Namespace, progname: str):
         logger.addHandler(syslog_h)
 
 
-def load_private_key(path: str) -> jose.JWK:
-    try:
-        with open(path, 'rb') as fd:
-            pem = fd.read(1024 * 1024)
-            logger.info('PEM IS {!r}'.format(pem))
-            return jose.JWK.load(pem)
-            #if 'BEGIN EC' in pem:
-            #    # TODO: need to parse the key to see if it is ES256 or some other curve
-            #    return jwk.construct(pem, jose.constants.ALGORITHMS.ES256)
-            #else:
-            #    return jwk.construct(pem, jose.constants.ALGORITHMS.RS256)
-    except TypeError:
-        logger.exception(f'Could not load key from {path}')
-        sys.exit(1)
+class DehydratedInfo(object):
+    """Dehydrated account information."""
+
+    def __init__(self, path: str, url_hint: str):
+        self.path = path
+
+        # Private key loaded on demand
+        self._private_key: Optional[jose.JWK] = None
+        self.alg = None
+
+        # Registration info from current dehydrated example:
+        #   {"id": 1556180297, "status": "valid", "orders": "http://localhost:8000/accounts/1556180297/orders"}
+        with open(os.path.join(path, 'registration_info.json'), 'r') as fd:
+            self.reg_info = json.loads(fd.read())
+
+        # This is really backwards, but since dehydrated doesn't save the URL to the
+        # directory in the registration info, we need to assume it from the url_hint
+        # if it matches, and otherwise leave it as None
+        self.url = None
+        if url_hint[-1] != '/':
+            url_hint += '/'
+        if 'orders' in self.reg_info:
+            if self.reg_info['orders'].startswith(url_hint):
+                self.url = url_hint
+
+    @property
+    def kid(self) -> Optional[str]:
+        if 'id' in self.reg_info:
+            return str(self.reg_info['id'])
+
+    @property
+    def private_key(self) -> Optional[jose.JWK]:
+        if self._private_key is None:
+            key_fn = os.path.join(self.path, 'account_key.pem')
+            with open(key_fn, 'rb') as fd:
+                pem = fd.read(1024 * 1024)
+            try:
+                self._private_key = jose.JWK.load(pem)  # type information is wrong for load(), it _needs_ bytes
+                self.alg = jose.RS256
+            except TypeError:
+                logger.error(f'Failed loading private key from file {key_fn}')
+        return self._private_key
+
+
+def load_dehydrated_info(args: argparse.Namespace) -> Optional[DehydratedInfo]:
+    """Locate a dehydrated account matching the specified URL, and return it's private key."""
+    for this in os.listdir(args.dehydrated_account_dir):
+        candidate = os.path.join(args.dehydrated_account_dir, this)
+        if not os.path.isdir(candidate):
+            continue
+        logger.debug(f'Loading dehydrated info from directory {candidate}')
+        info = DehydratedInfo(candidate, args.url)
+        if info.url == args.url:
+            return info
+        logger.debug(f'Account in directory {candidate} is for another URL: {info.url}')
+    logger.error(f'Could not find a dehydrated account for the specified URL ({args.url}) '
+                 f'in {args.dehydrated_account_dir}')
 
 
 def load_pem(path: str):
@@ -142,26 +186,27 @@ def load_pem(path: str):
 
 
 class AcmeHeader(jose.jws.Header):
+    """Class to get extra headers into the JWT."""
+
     url = jose.json_util.Field('url', omitempty=True)
     nonce = jose.json_util.Field('nonce', omitempty=True)
 
 
-def dehydrated_account_sign(data: str, dehydrated_account_dir: str, directory: Mapping) -> jose.JWS:
-    key = load_private_key(os.path.join(dehydrated_account_dir, 'account_key.pem'))
-    with open(os.path.join(dehydrated_account_dir, 'registration_info.json'), 'r') as fd:
-        reg_info = json.loads(fd.read())
-    logger.debug(f'ACME account: {reg_info.get("id")}')
-    headers = {'kid': str(reg_info['id']),
-               'url': directory['newAuthz'],
-               'nonce': get_acme_nonce(directory),
+def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Namespace) -> jose.JWS:
+    info = load_dehydrated_info(args)
+    if not info:
+        sys.exit(1)
+    logger.debug(f'ACME account: {info.kid}')
+    headers = {'kid': info.kid,
+               'url': endpoints['newAuthz'],
+               'nonce': get_acme_nonce(endpoints),
                }
-    # because of bugs in the jose implementation in used, we must wrap the token in a Mapping
+    # because of bugs in the jose implementation used on the server side, we must wrap the token in a Mapping
     # and use jwt.encode instead of just calling jws.sign(data, ...)
     claims = {'token': data}
-    #_key = key.to_dict()
-    #token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
     jose.jws.Signature.header_cls = AcmeHeader
-    token = jose.JWS.sign(payload=json.dumps(claims).encode(), key=key, alg=jose.RS256, include_jwk=False,
+    token = jose.JWS.sign(payload=json.dumps(claims).encode(),
+                          key=info.private_key, alg=info.alg, include_jwk=False,
                           protect={'alg', 'url', 'nonce', 'kid'},
                           **headers)
     return token
@@ -175,8 +220,7 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
     headers = {'x5c': [certificate],  # chain, one cert per element
                }
 
-    key = load_private_key(args.private_key)
-    _key = key.to_dict()
+    info = load_dehydrated_info(args)
 
     now = datetime.datetime.utcnow()
     claims = {'renew': True,
@@ -185,13 +229,12 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
               'aud': directory['newAuthz'],
               'crit': ['exp'],
               }
-    # token = jwt.encode(claims, _key, headers=headers, algorithm=_key['alg'])
-    token = jose.JWS.sign(payload=claims, headers=headers, key=key, alg=jose.RS256)
+    token = jose.JWS.sign(payload=claims, headers=headers, key=info.private_key, alg=info.alg)
     return token
 
 
-def post_pre_auth(token: str, directory: Mapping, args: argparse.Namespace) -> bool:
-    signed = dehydrated_account_sign(token, args.dehydrated_account_dir, directory)
+def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) -> bool:
+    signed = dehydrated_account_sign(token, endpoints, args)
     logger.debug(f'Signed data: {signed}')
 
     _elem = signed.to_compact().decode('utf-8').split('.')
@@ -201,15 +244,15 @@ def post_pre_auth(token: str, directory: Mapping, args: argparse.Namespace) -> b
                 }
     headers = {'content-type': 'application/jose+json'}
 
-    r = requests.post(directory['newAuthz'], json=req_data, headers=headers)
+    r = requests.post(endpoints['newAuthz'], json=req_data, headers=headers)
     logger.debug('Response from server: {}\n{}\n'.format(r, r.text))
     if r.status_code != 201:
-        logger.error(f'Error response from server (endpoint {directory["newAuthz"]}):\n{r} {r.text}')
+        logger.error(f'Error response from server (endpoint {endpoints["newAuthz"]}):\n{r} {r.text}')
         return False
     return True
 
 
-def get_acme_directory(url: str) -> dict:
+def get_acme_endpoints(url: str) -> Endpoints:
     r = requests.get(url)
     logger.debug(f'Fetched ACME directory from {url}: {r}')
     directory = r.json()
@@ -218,8 +261,8 @@ def get_acme_directory(url: str) -> dict:
     return r.json()
 
 
-def get_acme_nonce(directory: Mapping) -> str:
-    url = directory['newNonce']
+def get_acme_nonce(endpoints: Endpoints) -> str:
+    url = endpoints['newNonce']
     r = requests.head(url)
     nonce = r.headers.get('replay-nonce')
     if not nonce:
@@ -233,7 +276,7 @@ def main():
         progname = os.path.basename(sys.argv[0])
         args = parse_args(_defaults)
         _config_logger(args, progname)
-        directory = get_acme_directory(args.url)
+        directory = get_acme_endpoints(args.url)
         if args.mode == 'renew':
             token = create_renew_pre_auth(directory, args)
         elif args.mode == 'init':
