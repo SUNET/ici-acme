@@ -70,6 +70,8 @@ def parse_args(defaults: Mapping):
     #                    help='Pre auth mode',
     #                    )
 
+    parser.set_defaults(mode=None)
+
     subparsers = parser.add_subparsers(help='sub-commands')
 
     renew = subparsers.add_parser('renew', help='Renew a still valid certificate')
@@ -94,7 +96,14 @@ def parse_args(defaults: Mapping):
                       help='Path to file with an ICI ACME pre-auth token (generated with ici-preauth-token.py)',
                       )
 
+    is_registered = subparsers.add_parser('is_registered',
+                                          help='Check if a dehydrated account for the given URL exists')
+    is_registered.set_defaults(mode='is_registered')
+
     args = parser.parse_args()
+    if not args.mode:
+        parser.print_help()
+
     return args
 
 
@@ -169,7 +178,7 @@ def load_dehydrated_info(args: argparse.Namespace) -> Optional[DehydratedInfo]:
             continue
         logger.debug(f'Loading dehydrated info from directory {candidate}')
         info = DehydratedInfo(candidate, args.url)
-        if info.url == args.url:
+        if info.url is not None:
             return info
         logger.debug(f'Account in directory {candidate} is for another URL: {info.url}')
     logger.error(f'Could not find a dehydrated account for the specified URL ({args.url}) '
@@ -273,17 +282,25 @@ def get_acme_nonce(endpoints: Endpoints) -> str:
 def main():
     try:
         # initialize various components
+        res = False
         progname = os.path.basename(sys.argv[0])
         args = parse_args(_defaults)
         _config_logger(args, progname)
         directory = get_acme_endpoints(args.url)
-        if args.mode == 'renew':
-            token = create_renew_pre_auth(directory, args)
-        elif args.mode == 'init':
-            with open(args.token_file, 'r') as fd:
-                data = yaml.safe_load(fd)
-                token = data['token']
-        res = post_pre_auth(token, directory, args)
+        if args.mode == 'is_registered':
+            info = load_dehydrated_info(args)
+            if info and info.url is not None:
+                # TODO: Verify account using newAccount with onlyReturnExisting=True.
+                logger.debug(f'Dehydrated account for URL {info .url} found')
+                res = True
+        elif args.mode in ['renew', 'init']:
+            if args.mode == 'renew':
+                token = create_renew_pre_auth(directory, args)
+            else:
+                with open(args.token_file, 'r') as fd:
+                    data = yaml.safe_load(fd)
+                    token = data['token']
+            res = post_pre_auth(token, directory, args)
 
         if res is True:
             sys.exit(0)
