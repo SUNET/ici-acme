@@ -20,7 +20,7 @@ class HandleJOSE(object):
         self.context = context
 
     def process_request(self, req: Request, resp: Response):
-        self.context.logger.info(f'\n\n\nIN HandleJose PROCESS_REQUEST: {req.method} {req.path}')
+        self.context.logger.debug(f'Middleware process_request(): {req.method} {req.path}')
         if req.method == 'POST':
             if req.content_type != 'application/jose+json':
                 raise UnsupportedMediaTypeMalformed(detail=f'{req.content_type} is an unsupported media type')
@@ -28,11 +28,11 @@ class HandleJOSE(object):
             supported_algorithms = [Algorithms.RS256, Algorithms.ES256, Algorithms.ES384]
             data = req.media
             token = f'{data["protected"]}.{data["payload"]}.{data["signature"]}'
-            self.context.logger.debug(f'HEADERS: {jws.get_unverified_headers(token)}')
-            self.context.logger.debug(f'CLAIMS: {jws.get_unverified_claims(token)}')
 
             headers = jws.get_unverified_headers(token)
             protected = json.loads(b64_decode(data['protected']))
+
+            self.context.logger.debug(f'(Unverified) headers: {headers}')
 
             if headers.get('kid') and protected.get('jwk'):
                 raise Unauthorized(detail='The "jwk" and "kid" fields are mutually exclusive')
@@ -66,7 +66,6 @@ class HandleJOSE(object):
                 self.context.logger.error(f'Exception while verifying token: {e}')
                 raise ServerInternal(detail=f'{e}')
 
-            self.context.logger.debug(f'Headers: {headers}')
             self.context.logger.debug(f'Verified data: {ret}')
             req.context['jose_verified_data'] = ret
             req.context['jose_headers'] = headers
@@ -78,17 +77,15 @@ class HandleReplayNonce(object):
         self.context = context
 
     def process_request(self, req: Request, resp: Response):
-        self.context.logger.debug(f'\n\n\nIN HandleReplayNonce PROCESS_REQUEST: {req.method} {req.path}')
-
         if req.method == 'POST':
             nonce = req.context['jose_headers'].get('nonce')
             if not nonce or not self.context.check_nonce(nonce):
                 self.context.logger.info(f'Nonce {nonce} was not found')
                 raise BadNonce(new_nonce=self.context.new_nonce)
+            self.context.logger.debug(f'Validated nonce {nonce} for POST {req.path}')
 
     def process_response(self, req: Request, resp: Response, resource: BaseResource, req_succeeded: bool):
-        self.context.logger.debug(f'\n\n\nIN HandleReplayNonce PROCESS_RESPONSE: {req.method}'
-                                  f' {req.path} - {resource} {req_succeeded}')
         if req.method == 'POST':
             resp.set_header('Replay-Nonce', self.context.new_nonce)
-
+            self.context.logger.debug(f'Added a new nonce to POST {req.method} {req.path} - '
+                                      f'{resource} {req_succeeded}')
