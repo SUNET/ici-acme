@@ -17,14 +17,15 @@ import logging
 import logging.handlers
 import os
 import sys
-from base64 import b64encode
-from typing import Mapping, Optional, NewType
+from typing import Mapping, NewType, Optional
 
 import OpenSSL
 import josepy as jose
 import requests
 import yaml
 from OpenSSL import crypto as openssl_crypto
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from josepy import JWASignature
 
 logger = logging.getLogger()
 
@@ -39,7 +40,7 @@ _defaults = {
 Endpoints = NewType('EndPoints', dict)
 
 
-def parse_args(defaults: Mapping):
+def parse_args(defaults: Mapping, args=None):
     parser = argparse.ArgumentParser(description='ICI ACME pre-auth client',
                                      add_help=True,
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -102,7 +103,7 @@ def parse_args(defaults: Mapping):
                                           help='Check if a dehydrated account for the given URL exists')
     is_registered.set_defaults(mode='is_registered')
 
-    args = parser.parse_args()
+    args = parser.parse_args(args=args)
     if not args.mode:
         parser.print_help()
 
@@ -162,13 +163,9 @@ class DehydratedInfo(object):
     def private_key(self) -> Optional[jose.JWK]:
         if self._private_key is None:
             key_fn = os.path.join(self.path, 'account_key.pem')
-            with open(key_fn, 'rb') as fd:
-                pem = fd.read(1024 * 1024)
-            try:
-                self._private_key = jose.JWK.load(pem)  # type information is wrong for load(), it _needs_ bytes
-                self.alg = jose.RS256
-            except TypeError:
-                logger.error(f'Failed loading private key from file {key_fn}')
+            alg, key = load_private_key(key_fn)
+            self.alg = alg
+            self._private_key = key
         return self._private_key
 
 
@@ -196,6 +193,26 @@ def load_pem(path: str):
         sys.exit(1)
 
 
+def load_private_key(path: str):
+    try:
+        with open(path, 'rb') as fd:
+            pem = fd.read()
+        if b'BEGIN RSA PRIVATE KEY' in pem:
+            alg = jose.RS256
+            key = jose.JWK.load(pem)  # type information is wrong for load(), it _needs_ bytes
+        elif b'BEGIN EC PRIVATE KEY' in pem:
+            alg = ICI_ES256
+            _pkey = openssl_crypto.load_privatekey(openssl_crypto.FILETYPE_PEM, pem)
+            key = ICI_ESKey(_pkey)
+        else:
+            raise RuntimeError(f'Failed loading {path}: josepy only supports RSA keys')
+        logger.debug(f'Loaded private key ({alg}) from {path}')
+        return alg, key
+    except TypeError:
+        logger.exception(f'Could not load private key from {path}')
+        sys.exit(1)
+
+
 class AcmeHeader(jose.jws.Header):
     """Class to get extra headers into the JWT."""
 
@@ -212,14 +229,45 @@ class AcmeHeader(jose.jws.Header):
         return [base64.b64encode(OpenSSL.crypto.dump_certificate(
             OpenSSL.crypto.FILETYPE_ASN1, cert.wrapped)).decode('utf-8') for cert in value]
 
-def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Namespace) -> jose.JWS:
+
+class ICI_ESKey(object):
+    """Holder for an EC private key"""
+
+    def __init__(self, pkey: OpenSSL.crypto.PKey):
+        self.key = pkey
+
+
+class ICI_JWAES(JWASignature):
+    """ECDSA signing for josepy"""
+
+    kty = ICI_ESKey
+
+    def sign(self, key: OpenSSL.crypto.PKey, msg) -> bytes:
+        logger.debug(f'EC SIGN {repr(msg)}')
+        sig = openssl_crypto.sign(key, msg, 'sha256')
+        r, s = decode_dss_signature(sig)
+        return r.to_bytes(length = 256 // 8, byteorder='big') + \
+               s.to_bytes(length = 256 // 8, byteorder='big')
+
+    def verify(self, key, msg, sig):  # pragma: no cover
+        raise NotImplementedError()
+
+
+# Register our ES256 implementation
+ICI_ES256 = JWASignature.register(ICI_JWAES('ES256'))
+
+
+def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Namespace, nonce=None) -> jose.JWS:
     info = load_dehydrated_info(args)
     if not info:
         sys.exit(1)
+
+    if nonce is None:
+        nonce = get_acme_nonce(endpoints)
     logger.debug(f'ACME account: {info.kid}')
     headers = {'kid': info.kid,
                'url': endpoints['newAuthz'],
-               'nonce': get_acme_nonce(endpoints),
+               'nonce': nonce,
                }
     # because of bugs in the jose implementation used on the server side, we must wrap the token in a Mapping
     # and use jwt.encode instead of just calling jws.sign(data, ...)
@@ -232,25 +280,26 @@ def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Name
     return token
 
 
-def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
+def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace, expires=300) -> str:
     existing_certificate = load_pem(args.existing_cert)
     certificate = jose.util.ComparableX509(existing_certificate)
 
     headers = {'x5c': [certificate],  # chain, one cert per element
                }
 
-    info = load_dehydrated_info(args)
+    alg, private_key = load_private_key(args.private_key)
 
+    logger.debug(f'Signing renew token with {alg} private key from {args.private_key}')
     now = datetime.datetime.utcnow()
     claims = {'renew': True,
-              'exp': (now + datetime.timedelta(seconds=300)).isoformat(),
-              'iat': datetime.datetime.utcnow().isoformat(),
+              'exp': (now + datetime.timedelta(seconds=expires)).timestamp(),
+              'iat': datetime.datetime.utcnow().timestamp(),
               'aud': directory['newAuthz'],
               'crit': ['exp'],
               }
     jose.jws.Signature.header_cls = AcmeHeader
     token = jose.JWS.sign(payload=json.dumps(claims).encode(),
-                          key=info.private_key, alg=info.alg, include_jwk=False,
+                          key=private_key, alg=alg, include_jwk=False,
                           protect={'alg', 'x5c'},
                           **headers)
     return token.to_compact().decode('utf-8')
@@ -258,7 +307,7 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace) -> str:
 
 def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) -> bool:
     signed = dehydrated_account_sign(token, endpoints, args)
-    logger.debug(f'Signed data: {signed}')
+    logger.debug(f'Signed data: {signed}\n')
 
     _elem = signed.to_compact().decode('utf-8').split('.')
     req_data = {'protected': _elem[0],

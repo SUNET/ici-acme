@@ -49,12 +49,7 @@ def is_valid_x509_cert(client_cert: X509, ca_path: str) -> bool:
     return False
 
 
-def get_cert_info(cert_data: bytes, der_encoded=False) -> CertInfo:
-    if der_encoded:
-        cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert_data)
-    else:
-        cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_data)
-
+def get_cert_info(cert: X509) -> CertInfo:
     names: Set[str] = set()
     key_usage: Set[str] = set()
 
@@ -85,4 +80,3 @@ def decode_x5c_cert(cert_der: bytes) -> X509:
 
 def get_public_key(cert: X509) -> str:
     return crypto.dump_publickey(crypto.FILETYPE_PEM, cert.get_pubkey()).decode('utf-8')
-

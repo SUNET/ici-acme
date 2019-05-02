@@ -12,7 +12,7 @@ from ici_acme.context import Context
 from ici_acme.data import Authorization, Challenge
 from ici_acme.exceptions import BadRequest, RejectedIdentifier
 from ici_acme.policy import PreAuthToken, get_authorized_names
-from ici_acme.policy.x509 import get_public_key, decode_x5c_cert
+from ici_acme.policy.x509 import get_public_key, decode_x5c_cert, cert_der_to_pem
 from ici_acme.utils import b64_encode
 
 
@@ -104,20 +104,30 @@ class PreAuthResource(BaseResource):
 
 def validate_token_signature(token: str, audience: str, context: Context) -> PreAuthToken:
     _headers = jose.jws.get_unverified_header(token)
+    context.logger.debug(f'Unverified headers in pre-auth request: {_headers}')
+
     # The certificate containing the public key corresponding to the
     # key used to digitally sign the JWS MUST be the first certificate
     first_cert = decode_x5c_cert(base64.b64decode(_headers['x5c'][0]))
-
     context.logger.info(f'Pre-auth token x5c cert: {first_cert.get_subject()}, '
                         f'issued by {first_cert.get_issuer()}')
+
     # work around bug in JOSE implementations _get_keys
     key_dict = {'keys': [get_public_key(first_cert)]}
 
-    claims = jose.jwt.decode(token, key_dict, audience=audience,
-                             algorithms=[jwk.ALGORITHMS.RS256,
-                                         jwk.ALGORITHMS.ES256,
-                                         jwk.ALGORITHMS.ES384,
-                                         ])
+    try:
+        claims = jose.jwt.decode(token, key_dict, audience=audience,
+                                 algorithms=[jwk.ALGORITHMS.RS256,
+                                             jwk.ALGORITHMS.ES256,
+                                             jwk.ALGORITHMS.ES384,
+                                             ])
+    except jose.exceptions.JWTError:
+        context.logger.exception('Failed validating signature of token')
+        first_cert_pem = cert_der_to_pem(base64.b64decode(_headers['x5c'][0]))
+        context.logger.debug(f'x5c certificate in PEM format:\n{first_cert_pem}')
+        context.logger.debug(f'Public key from x5c certificate:\n{key_dict}')
+        context.logger.debug(f'Token:\n{token}')
+        raise
     # We are relying on the JOSE implementation to actually check 'exp'.
     # Remember this if changing from python-jose to something else in the future!
     if 'exp' not in claims.get('crit', []):

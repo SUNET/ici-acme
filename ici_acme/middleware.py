@@ -13,6 +13,8 @@ from ici_acme.exceptions import ServerInternal, BadNonce
 
 __author__ = 'lundberg'
 
+SUPPORTED_ALGORITHMS = [Algorithms.RS256, Algorithms.ES256, Algorithms.ES384]
+
 
 class HandleJOSE(object):
 
@@ -25,7 +27,6 @@ class HandleJOSE(object):
             if req.content_type != 'application/jose+json':
                 raise UnsupportedMediaTypeMalformed(detail=f'{req.content_type} is an unsupported media type')
 
-            supported_algorithms = [Algorithms.RS256, Algorithms.ES256, Algorithms.ES384]
             data = req.media
             token = f'{data["protected"]}.{data["payload"]}.{data["signature"]}'
 
@@ -53,15 +54,15 @@ class HandleJOSE(object):
             # Account registration
             elif req.path.endswith('/new-account') or req.path.endswith('/new-account/'):
                 jwk = protected['jwk']
-                if protected['alg'] not in supported_algorithms:
-                    raise BadSignatureAlgorithm(algorithms=supported_algorithms)
+                if protected['alg'] not in SUPPORTED_ALGORITHMS:
+                    raise BadSignatureAlgorithm(algorithms=SUPPORTED_ALGORITHMS)
                 req.context['account_creation'] = True
             else:
                 self.context.logger.warning(f'Account not found using kid {kid}')
                 raise Unauthorized(detail='Account not found')
 
             try:
-                ret = jws.verify(token, jwk, algorithms=supported_algorithms)
+                ret = jws.verify(token, jwk, algorithms=SUPPORTED_ALGORITHMS)
             except JOSEError as e:
                 self.context.logger.error(f'Exception while verifying token: {e}')
                 raise ServerInternal(detail=f'{e}')
