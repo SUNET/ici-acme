@@ -40,6 +40,57 @@ _defaults = {
 Endpoints = NewType('EndPoints', dict)
 
 
+#### BEGIN python-josepy EXTRAS
+#
+# All this code is here to overcome current shortcoming in python-josepy (v 1.1.0).
+#
+class AcmeHeader(jose.jws.Header):
+    """Class to get extra headers into the JWT."""
+
+    url = jose.json_util.Field('url', omitempty=True)
+    nonce = jose.json_util.Field('nonce', omitempty=True)
+
+    x5c = jose.json_util.Field('x5c', omitempty=True, default=())
+
+    # The Header x5c encoder has an encoding bug in Python3. It returns bytes,
+    # but then the JSON encoder fails saying it can't serialize bytes. This
+    # is a copy of that function with ".decode('utf-8')" added.
+    @x5c.encoder  # type: ignore
+    def x5c(value):  # pylint: disable=missing-docstring,no-self-argument
+        return [base64.b64encode(OpenSSL.crypto.dump_certificate(
+            OpenSSL.crypto.FILETYPE_ASN1, cert.wrapped)).decode('utf-8') for cert in value]
+
+
+class ICI_ESKey(object):
+    """Holder for an EC private key"""
+
+    def __init__(self, pkey: OpenSSL.crypto.PKey):
+        self.key = pkey
+
+
+class ICI_JWAES(JWASignature):
+    """ECDSA signing for josepy"""
+
+    kty = ICI_ESKey
+
+    def sign(self, key: OpenSSL.crypto.PKey, msg) -> bytes:
+        logger.debug(f'EC SIGN {repr(msg)}')
+        sig = openssl_crypto.sign(key, msg, 'sha256')
+        r, s = decode_dss_signature(sig)
+        return r.to_bytes(length = 256 // 8, byteorder='big') + \
+               s.to_bytes(length = 256 // 8, byteorder='big')
+
+    def verify(self, key, msg, sig):  # pragma: no cover
+        raise NotImplementedError()
+
+
+# Register our ES256 implementation
+ICI_ES256 = JWASignature.register(ICI_JWAES('ES256'))
+
+
+#### END python-josepy EXTRAS
+
+
 def parse_args(defaults: Mapping, args=None):
     parser = argparse.ArgumentParser(description='ICI ACME pre-auth client',
                                      add_help=True,
@@ -67,11 +118,6 @@ def parse_args(defaults: Mapping, args=None):
                         type=str, required=True,
                         help='Account directory',
                         )
-    #parser.add_argument('--mode',
-    #                    dest='mode',
-    #                    type=str, default=defaults['mode'],
-    #                    help='Pre auth mode',
-    #                    )
 
     parser.set_defaults(mode=None)
 
@@ -211,50 +257,6 @@ def load_private_key(path: str):
     except TypeError:
         logger.exception(f'Could not load private key from {path}')
         sys.exit(1)
-
-
-class AcmeHeader(jose.jws.Header):
-    """Class to get extra headers into the JWT."""
-
-    url = jose.json_util.Field('url', omitempty=True)
-    nonce = jose.json_util.Field('nonce', omitempty=True)
-
-    x5c = jose.json_util.Field('x5c', omitempty=True, default=())
-
-    # The Header x5c encoder has an encoding bug in Python3. It returns bytes,
-    # but then the JSON encoder fails saying it can't serialize bytes. This
-    # is a copy of that function with ".decode('utf-8')" added.
-    @x5c.encoder  # type: ignore
-    def x5c(value):  # pylint: disable=missing-docstring,no-self-argument
-        return [base64.b64encode(OpenSSL.crypto.dump_certificate(
-            OpenSSL.crypto.FILETYPE_ASN1, cert.wrapped)).decode('utf-8') for cert in value]
-
-
-class ICI_ESKey(object):
-    """Holder for an EC private key"""
-
-    def __init__(self, pkey: OpenSSL.crypto.PKey):
-        self.key = pkey
-
-
-class ICI_JWAES(JWASignature):
-    """ECDSA signing for josepy"""
-
-    kty = ICI_ESKey
-
-    def sign(self, key: OpenSSL.crypto.PKey, msg) -> bytes:
-        logger.debug(f'EC SIGN {repr(msg)}')
-        sig = openssl_crypto.sign(key, msg, 'sha256')
-        r, s = decode_dss_signature(sig)
-        return r.to_bytes(length = 256 // 8, byteorder='big') + \
-               s.to_bytes(length = 256 // 8, byteorder='big')
-
-    def verify(self, key, msg, sig):  # pragma: no cover
-        raise NotImplementedError()
-
-
-# Register our ES256 implementation
-ICI_ES256 = JWASignature.register(ICI_JWAES('ES256'))
 
 
 def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Namespace, nonce=None) -> jose.JWS:
