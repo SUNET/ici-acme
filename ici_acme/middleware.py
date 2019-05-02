@@ -20,7 +20,7 @@ class HandleJOSE(object):
         self.context = context
 
     def process_request(self, req: Request, resp: Response):
-        self.context.logger.debug(f'Middleware process_request(): {req.method} {req.path}')
+        self.context.logger.debug(f'process_request: {req.method} {req.path}')
         if req.method == 'POST':
             if req.content_type != 'application/jose+json':
                 raise UnsupportedMediaTypeMalformed(detail=f'{req.content_type} is an unsupported media type')
@@ -82,10 +82,10 @@ class HandleReplayNonce(object):
             if not nonce or not self.context.check_nonce(nonce):
                 self.context.logger.info(f'Nonce {nonce} was not found')
                 raise BadNonce(new_nonce=self.context.new_nonce)
-            self.context.logger.debug(f'Validated nonce {nonce} for POST {req.path}')
+            self.context.logger.debug(f'Validated nonce for POST {req.path}')
 
     def process_response(self, req: Request, resp: Response, resource: BaseResource, req_succeeded: bool):
         if req.method == 'POST':
             resp.set_header('Replay-Nonce', self.context.new_nonce)
-            self.context.logger.debug(f'Added a new nonce to POST {req.method} {req.path} - '
+            self.context.logger.debug(f'Added a new nonce to POST {req.path} - '
                                       f'{resource} {req_succeeded}')

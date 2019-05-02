@@ -12,7 +12,7 @@ from ici_acme.context import Context
 from ici_acme.data import Authorization, Challenge
 from ici_acme.exceptions import BadRequest, RejectedIdentifier
 from ici_acme.policy import PreAuthToken, get_authorized_names
-from ici_acme.policy.x509 import get_public_key
+from ici_acme.policy.x509 import get_public_key, decode_x5c_cert
 from ici_acme.utils import b64_encode
 
 
@@ -106,11 +106,12 @@ def validate_token_signature(token: str, audience: str, context: Context) -> Pre
     _headers = jose.jws.get_unverified_header(token)
     # The certificate containing the public key corresponding to the
     # key used to digitally sign the JWS MUST be the first certificate
-    first_cert = base64.b64decode(_headers['x5c'][0])
+    first_cert = decode_x5c_cert(base64.b64decode(_headers['x5c'][0]))
 
-    pubkey_pem = get_public_key(first_cert)
+    context.logger.info(f'Pre-auth token x5c cert: {first_cert.get_subject()}, '
+                        f'issued by {first_cert.get_issuer()}')
     # work around bug in JOSE implementations _get_keys
-    key_dict = {'keys': [pubkey_pem]}
+    key_dict = {'keys': [get_public_key(first_cert)]}
 
     claims = jose.jwt.decode(token, key_dict, audience=audience,
                              algorithms=[jwk.ALGORITHMS.RS256,

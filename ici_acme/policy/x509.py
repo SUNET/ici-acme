@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Set
 
 from OpenSSL import crypto
+from OpenSSL.crypto import X509
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,11 @@ def _add_ca_cert(store, fn: str):
         logger.debug(f'Added CA cert from file {fn}: {_ca.get_subject()}')
 
 
-def is_valid_x509_cert(cert_der: bytes, ca_path: str) -> bool:
+def is_valid_x509_cert(client_cert: X509, ca_path: str) -> bool:
     if not ca_path:
         logger.info('No CA path provided, certificate treated as invalid')
         return False
 
-    client_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert_der)
     store = crypto.X509Store()
 
     if os.path.isfile(ca_path):
@@ -80,6 +80,9 @@ def cert_der_to_pem(der: bytes) -> bytes:
     cert = crypto.load_certificate(crypto.FILETYPE_ASN1, der)
     return crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
 
-def get_public_key(cert_der: bytes) -> str:
-    cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert_der)
+def decode_x5c_cert(cert_der: bytes) -> X509:
+    return crypto.load_certificate(crypto.FILETYPE_ASN1, cert_der)
+
+def get_public_key(cert: X509) -> str:
     return crypto.dump_publickey(crypto.FILETYPE_PEM, cert.get_pubkey()).decode('utf-8')
+

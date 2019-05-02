@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Mapping
 
+from OpenSSL.crypto import X509
+
 
 @dataclass
 class PreAuthToken(object):
@@ -11,4 +13,4 @@ class PreAuthToken(object):
     The authority of the certificate is NOT checked.
     """
     claims: Mapping
-    cert: bytes
+    cert: X509
