@@ -272,6 +272,7 @@ def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) ->
     if r.status_code != 201:
         logger.error(f'Error response from server (endpoint {endpoints["newAuthz"]}):\n{r} {r.text}')
         return False
+    logger.info(f'Pre-authenticated with endpoint {endpoints["newAuthz"]}: {r} {r.text}')
     return True
 
 

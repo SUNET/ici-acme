@@ -15,25 +15,30 @@ class CertInfo(object):
     key_usage: Set[str] = field(default=lambda: {})
 
 
+def _add_ca_cert(store, fn: str):
+    with open(fn, 'rb') as fd:
+        _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fd.read())
+        store.add_cert(_ca)
+        logger.debug(f'Added CA cert from file {fn}: {_ca.get_subject()}')
+
+
 def is_valid_x509_cert(cert_der: bytes, ca_path: str) -> bool:
     if not ca_path:
+        logger.info('No CA path provided, certificate treated as invalid')
         return False
 
     client_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert_der)
     store = crypto.X509Store()
 
     if os.path.isfile(ca_path):
-        with open(ca_path, 'rb') as fd:
-            _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fd.read())
-            store.add_cert(_ca)
+        _add_ca_cert(store, ca_path)
     elif os.path.isdir(ca_path):
         for fn in glob.glob(os.path.join(ca_path, '*.crt')):
-            with open(fn, 'rb') as fd:
-                _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fd.read())
-            store.add_cert(_ca)
+            _add_ca_cert(store, fn)
     else:
         raise RuntimeError(f'CA path {repr(ca_path)} is not a file or directory')
 
+    logger.debug(f'Validating certificate {client_cert.get_subject()}, issued by {client_cert.get_issuer()}')
     ctx = crypto.X509StoreContext(store, client_cert)
     try:
         result = ctx.verify_certificate()

@@ -12,14 +12,21 @@ logger = logging.getLogger(__name__)
 def get_authorized_names(preauth: PreAuthToken, context: Context) -> List[str]:
     requested_names = []
     if preauth.claims.get('renew') is True:
-        if context.renew_ca_path:
-            if not is_valid_x509_cert(preauth.cert, ca_path=context.renew_ca_path):
-                context.logger.error(f'Certificate failed infra-cert validation')
-                return []
+        if not context.renew_ca_path:
+            logger.info('Renew disallowed, no renew CA path configured')
+            return []
 
-            cert_info = get_cert_info(preauth.cert, der_encoded=True)
-            requested_names = cert_info.names
-    elif context.token_ca_path:
+        if not is_valid_x509_cert(preauth.cert, ca_path=context.renew_ca_path):
+            context.logger.error(f'Certificate failed infra-cert validation')
+            return []
+
+        cert_info = get_cert_info(preauth.cert, der_encoded=True)
+        requested_names = cert_info.names
+    else:
+        if not context.token_ca_path:
+            logger.info('Pre-auth token disallowed, no token CA path configured')
+            return []
+
         names = is_valid_preauth_token(preauth, context.token_ca_path, context)
         if names is not False:
             requested_names = names
