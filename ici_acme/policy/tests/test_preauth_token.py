@@ -60,7 +60,9 @@ class Test_TokenValidation(unittest.TestCase):
         self.data_dir = pkg_resources.resource_filename(__name__, 'data')
         self.ici_ca_dir = os.path.join(self.data_dir, 'ici-ca')
         self.audience = 'http://localhost:8000/new-authz'
-        self.context = Context(store=None)
+        self.config={'STORE_PATH': '/tmp',
+                     }
+        self.context = Context(config=self.config)
 
     def test_token_validate_valid(self):
         self.context._nonces['CpMN-AGAtSGiRVaFVHaqRg'] = 'legit'
