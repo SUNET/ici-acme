@@ -96,3 +96,4 @@ class Certificate(StoreObject):
     created: datetime
     certificate: Optional[str] = None
     expires: Optional[datetime] = None  # set when certificate is added
+    cert_chain: Optional[List[str]] = None

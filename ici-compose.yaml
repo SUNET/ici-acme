@@ -27,6 +27,7 @@ services:
     image: 'ici_acme:latest'
     volumes:
       - /var/lib/ici_acme:/var/lib/ici_acme
+      - /var/lib/ici/example/ca.crt:/var/lib/ici/example/ca.crt
       - /var/lib/ici/example/requests:/var/lib/ici/example/requests
       - /var/lib/ici/example/out-certs:/var/lib/ici/example/out-certs
     depends_on:

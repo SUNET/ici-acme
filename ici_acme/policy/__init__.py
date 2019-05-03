@@ -20,7 +20,7 @@ def get_authorized_names(preauth: PreAuthToken, context: Context) -> List[str]:
             context.logger.error(f'Certificate failed infra-cert validation')
             return []
 
-        cert_info = get_cert_info(preauth.cert, der_encoded=True)
+        cert_info = get_cert_info(preauth.cert)
         requested_names = cert_info.names
     else:
         if not context.token_ca_path:

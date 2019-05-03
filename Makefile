@@ -17,6 +17,7 @@ docker_run:
 docker_interface:
 	docker run --rm -it --name ici_interface \
 		-v $(DOCKER_ICI_ACME):/var/lib/ici_acme \
+		-v /var/lib/ici/example/ca.crt:/var/lib/ici/example/ca.crt \
 		-v /var/lib/ici/example/requests:/var/lib/ici/example/requests \
 		-v /var/lib/ici/example/out-certs:/var/lib/ici/example/out-certs \
 		'ici_acme:latest' /ici_acme/env/bin/python -- \

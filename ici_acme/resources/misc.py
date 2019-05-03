@@ -75,8 +75,10 @@ class CertificateResource(BaseResource):
             resp.status = falcon.HTTP_404
             return
         resp.set_header('Content-Type', 'application/pem-certificate-chain')
-        resp.body = certificate.certificate
-        # TODO: add CA certificate after the issued certificate
+        certs = [certificate.certificate]
+        if certificate.cert_chain:
+            certs += certificate.cert_chain
+        resp.body = ''.join(certs)
 
 
 class DirectoryResource(BaseResource):

@@ -49,6 +49,7 @@ _defaults = {'syslog': True,
              'store_dir': os.path.join(os.getcwd(), 'data/certificate'),
              'ici_input_dir': '/var/lib/ici/example/requests/server',
              'ici_output_dir': '/var/lib/ici/example/out-certs',
+             'cert_chain': '/var/lib/ici/example/ca.crt',
              'timeout': 60,
              }
 
@@ -77,6 +78,12 @@ def parse_args(defaults):
                         metavar = 'DIR', type = str,
                         default = defaults['ici_output_dir'],
                         help = 'ICI-CA output directory (where to get certificates)',
+    )
+    parser.add_argument('--cert_chain',
+                        dest = 'cert_chain',
+                        metavar = 'FILE', type = str,
+                        default = defaults['cert_chain'],
+                        help = 'File with ICI CA cert',
     )
     parser.add_argument('--timeout',
                         dest = 'timeout',
@@ -167,6 +174,11 @@ def main(args, logger):
                 logger.error(f'Could not find ici-acme store certificate: {store_fn}')
                 continue
 
+            cert_chain = None
+            if args.cert_chain:
+                with open(args.cert_chain, 'r') as fd:
+                    cert_chain = [fd.read()]
+
             with open(store_fn, 'r') as fd:
                 data = yaml.safe_load(fd.read())
 
@@ -174,6 +186,7 @@ def main(args, logger):
                 logger.error(f'There is already a certificate in file {store_fn}')
 
             data['certificate'] = cert_data
+            data['cert_chain'] = cert_chain
 
             ignore_store_events[filename] = True
             with open(store_fn, 'w') as fd:

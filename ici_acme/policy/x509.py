@@ -58,7 +58,6 @@ def get_cert_info(cert: X509) -> CertInfo:
 
     for i in range(cert.get_extension_count()):
         ext = cert.get_extension(i)
-        #print(f'{ext.get_short_name()} == {str(ext)}')
         if ext.get_short_name() == b'subjectAltName':
             for san in str(ext).split(','):
                 san = san.strip()
