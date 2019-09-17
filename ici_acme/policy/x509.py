@@ -20,7 +20,7 @@ def _add_ca_cert(store, fn: str):
     with open(fn, 'rb') as fd:
         _ca = crypto.load_certificate(crypto.FILETYPE_PEM, fd.read())
         store.add_cert(_ca)
-        logger.debug(f'Added CA cert from file {fn}: {_ca.get_subject()} (serial {_ca.get_serial_number()})')
+        logger.debug(f'Added CA cert from file {fn}: {_ca.get_subject()} (serial {hex(_ca.get_serial_number())})')
 
 
 def is_valid_x509_cert(client_cert: X509, ca_path: str) -> bool:
@@ -38,7 +38,7 @@ def is_valid_x509_cert(client_cert: X509, ca_path: str) -> bool:
     else:
         raise RuntimeError(f'CA path {repr(ca_path)} is not a file or directory')
 
-    logger.debug(f'Validating certificate {client_cert.get_subject()} (serial {client_cert.get_serial_number()}), '
+    logger.debug(f'Validating certificate {client_cert.get_subject()} (serial {hex(client_cert.get_serial_number())}), '
                  f'issued by {client_cert.get_issuer()}')
     ctx = crypto.X509StoreContext(store, client_cert)
     try:
