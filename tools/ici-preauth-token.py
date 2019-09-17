@@ -16,8 +16,7 @@ import requests
 import yaml
 from pkcs11 import Attribute, ObjectClass, KeyType
 from OpenSSL import crypto
-from jose import jwk, jws
-
+from jose import jwk, jws, JWSError
 
 _defaults = {'debug': False,
              'module': '/usr/lib/softhsm/libsofthsm2.so',
@@ -122,7 +121,6 @@ class P11Key(jwk.Key):
             if not self._public_key:
                 raise RuntimeError('Could not load public key')
 
-
             logger.debug(f'Verifying signature, data: {msg}')
             logger.debug(f'Signature: {binascii.hexlify(sig)}')
             import pkcs11.util.ec
@@ -131,6 +129,7 @@ class P11Key(jwk.Key):
                 msg = hashlib.sha256(msg).digest()
                 logger.debug(f'SHA-256 hashed into new data: {binascii.hexlify(msg)}')
 
+            logger.debug(f'VERIFY msg {msg} SIG {sig} MECH {self._mechanism}')
             res = self._public_key.verify(msg, sig, mechanism=self._mechanism)
             logger.debug(f'Verify result: {res}')
             if not res:
@@ -231,6 +230,8 @@ def main(args: argparse.Namespace, logger: logging.Logger):
         cert_pem = fd.read()
 
     certificate = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
+    logger.info(f'Including cert from file {args.cert}')
+    logger.info(f'Requestor: {certificate.get_subject()} (serial {hex(certificate.get_serial_number())})')
     headers = {'x5c': [b64encode(crypto.dump_certificate(crypto.FILETYPE_ASN1, certificate)).decode('utf-8')],
                'url': directory['newAuthz'],
                }
@@ -244,11 +245,16 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     token = pkcs11_jws_sign(claims, args.cka_label, headers=headers)
     logger.debug(f'JWS: {token}')
 
+    sig_verified = False
+
     try:
         # Verify token using PKCS#11. This step is not really necessary, but
         # the code seemed like it could be useful sometime somewhere so why not.
         verified = pkcs11_jws_verify(token)
         logger.debug(f'PKCS#11 verification result: {verified}')
+        if verified:
+            sig_verified = True
+            logger.info('Signature validated by token using PKCS#11')
     except Exception:
         logger.exception('FAILED verifying signature using PKCS#11')
 
@@ -259,8 +265,15 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     try:
         verified = jws.verify(token, pubkey_pem.decode('utf-8'), [jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
         logger.debug(f'Verification result: {verified}')
+        if verified:
+            sig_verified = True
+            logger.info('Signature validated using software cryptography library')
     except Exception:
         logger.exception('FAILED verifying signature using cryptography')
+
+    if not sig_verified:
+        logger.error('The generated signature could not be validated')
+        return False
 
     if args.output_file:
         # Write some extra info besides the token. The extra info should not be used
@@ -327,19 +340,36 @@ def pkcs11_jws_sign(data, key=None, headers=None) -> str:
     return res
 
 
-def pkcs11_jws_verify(token: str) -> str:
+def pkcs11_jws_verify(token: str) -> Optional[str]:
     """
     Perform JWS Sign with a key stored in an PKCS#11 token.
 
     This requires temporarily switching the key class for the algorithm in the token.
     See the documentation for pkcs11_jws_sign for more details.
 
-    :return: The signed payload from the token
+    :return: The signed payload from the token, or None if verify is not supported
     """
     headers = jws.get_unverified_headers(token)
     _alg = headers['alg']
+
+    # First, check if verify for this algorithm is supported by the token (current YubiKey can
+    # sign with ECDSA, but not verify).
+    # We have to do it in this hackish manner since the JOSE library will ignore any exceptions
+    # from the verify method and just turn everything into an
+    # JWSError('Signature verification failed.') exception.
+    _p11key = P11Key('', _alg, P11Key_params)
+    with _p11key.token.open(user_pin=_p11key.p11.pin) as session:
+        _p11key._load_key(session)
+        info = _p11key.token.slot.get_mechanism_info(_p11key._mechanism)
+    logger.debug('Token mechanism info:\n{}'.format(info))
+    if pkcs11.MechanismFlag.VERIFY not in info.flags:
+        logger.info('Verify is not a supported operation for algorithm {} using the PKCS#11 token'.format(
+            _p11key._algorithm))
+        return None
+
     orig_key = jwk.get_key(_alg)
     try:
+        # First check if verify is a supported operation using this al
         jwk.register_key(_alg, P11Key)
         res = jws.verify(token, '', algorithms=[jwk.ALGORITHMS.ES256, jwk.ALGORITHMS.RS256])
     except:
