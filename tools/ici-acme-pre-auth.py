@@ -8,7 +8,9 @@
 #       We don't run josepy everywhere since it does not currently support
 #       signing tokens with ECDSA keys.
 #
-
+# NOTE: This script should work with Python 3.5 for now, since 3.7 is not
+#       available on e.g. Ubuntu 16.04.
+#
 import argparse
 import base64
 import datetime
@@ -74,7 +76,7 @@ class ICI_JWAES(JWASignature):
     kty = ICI_ESKey
 
     def sign(self, key: OpenSSL.crypto.PKey, msg) -> bytes:
-        logger.debug(f'EC SIGN {repr(msg)}')
+        logger.debug('EC SIGN {!r}'.format(msg))
         sig = openssl_crypto.sign(key, msg, 'sha256')
         r, s = decode_dss_signature(sig)
         return r.to_bytes(length = 256 // 8, byteorder='big') + \
@@ -182,7 +184,7 @@ class DehydratedInfo(object):
         self.path = path
 
         # Private key loaded on demand
-        self._private_key: Optional[jose.JWK] = None
+        self._private_key = None  # type: Optional[jose.JWK]
         self.alg = None
 
         # Registration info from current dehydrated example:
@@ -221,13 +223,13 @@ def load_dehydrated_info(args: argparse.Namespace) -> Optional[DehydratedInfo]:
         candidate = os.path.join(args.dehydrated_account_dir, this)
         if not os.path.isdir(candidate):
             continue
-        logger.debug(f'Loading dehydrated info from directory {candidate}')
+        logger.debug('Loading dehydrated info from directory'.format(candidate))
         info = DehydratedInfo(candidate, args.url)
         if info.url is not None:
             return info
-        logger.debug(f'Account in directory {candidate} is for another URL: {info.url}')
-    logger.error(f'Could not find a dehydrated account for the specified URL ({args.url}) '
-                 f'in {args.dehydrated_account_dir}')
+        logger.debug('Account in directory {} is for another URL: {}'.format(candidate, info.url))
+    logger.error('Could not find a dehydrated account for the specified URL ({}) in {}'.format(
+        args.url, args.dehydrated_account_dir))
 
 
 def load_pem(path: str):
@@ -235,7 +237,7 @@ def load_pem(path: str):
         with open(path, 'rb') as fd:
             return openssl_crypto.load_certificate(openssl_crypto.FILETYPE_PEM, fd.read())
     except TypeError:
-        logger.exception(f'Could not load certificate from {path}')
+        logger.exception('Could not load certificate from {}'.format(path))
         sys.exit(1)
 
 
@@ -251,11 +253,11 @@ def load_private_key(path: str):
             _pkey = openssl_crypto.load_privatekey(openssl_crypto.FILETYPE_PEM, pem)
             key = ICI_ESKey(_pkey)
         else:
-            raise RuntimeError(f'Failed loading {path}: josepy only supports RSA keys')
-        logger.debug(f'Loaded private key ({alg}) from {path}')
+            raise RuntimeError('Failed loading {}: josepy only supports RSA keys'.format(path))
+        logger.debug('Loaded private key ({}) from {}'.format(alg, path))
         return alg, key
     except TypeError:
-        logger.exception(f'Could not load private key from {path}')
+        logger.exception('Could not load private key from {}'.format(path))
         sys.exit(1)
 
 
@@ -266,7 +268,7 @@ def dehydrated_account_sign(data: str, endpoints: Endpoints, args: argparse.Name
 
     if nonce is None:
         nonce = get_acme_nonce(endpoints)
-    logger.debug(f'ACME account: {info.kid}')
+    logger.debug('ACME account: {}'.format(info.kid))
     headers = {'kid': info.kid,
                'url': endpoints['newAuthz'],
                'nonce': nonce,
@@ -291,7 +293,7 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace, expires=
 
     alg, private_key = load_private_key(args.private_key)
 
-    logger.debug(f'Signing renew token with {alg} private key from {args.private_key}')
+    logger.debug('Signing renew token with {} private key from {}'.format(alg, args.private_key))
     now = datetime.datetime.utcnow()
     claims = {'renew': True,
               'exp': (now + datetime.timedelta(seconds=expires)).timestamp(),
@@ -309,7 +311,7 @@ def create_renew_pre_auth(directory: Mapping, args: argparse.Namespace, expires=
 
 def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) -> bool:
     signed = dehydrated_account_sign(token, endpoints, args)
-    logger.debug(f'Signed data: {signed}\n')
+    logger.debug('Signed data: {}\n'.format(signed))
 
     _elem = signed.to_compact().decode('utf-8').split('.')
     req_data = {'protected': _elem[0],
@@ -321,18 +323,18 @@ def post_pre_auth(token: str, endpoints: Endpoints, args: argparse.Namespace) ->
     r = requests.post(endpoints['newAuthz'], json=req_data, headers=headers)
     logger.debug('Response from server: {}\n{}\n'.format(r, r.text))
     if r.status_code != 201:
-        logger.error(f'Error response from server (endpoint {endpoints["newAuthz"]}):\n{r} {r.text}')
+        logger.error('Error response from server (endpoint {}):\n{} {}'.format(endpoints["newAuthz"], r, r.text))
         return False
-    logger.info(f'Pre-authenticated with endpoint {endpoints["newAuthz"]}: {r} {r.text}')
+    logger.info('Pre-authenticated with endpoint {}: {} {}'.format(endpoints["newAuthz"], r, r.text))
     return True
 
 
 def get_acme_endpoints(url: str) -> Endpoints:
     r = requests.get(url)
-    logger.debug(f'Fetched ACME directory from {url}: {r}')
+    logger.debug('Fetched ACME directory from {}: {}'.format(url, r))
     directory = r.json()
     if 'newNonce' not in directory:
-        raise RuntimeError(f'No newNonce endpoint returned from ACME server at {url}')
+        raise RuntimeError('No newNonce endpoint returned from ACME server at {}'.format(url))
     return r.json()
 
 
@@ -341,7 +343,7 @@ def get_acme_nonce(endpoints: Endpoints) -> str:
     r = requests.head(url)
     nonce = r.headers.get('replay-nonce')
     if not nonce:
-        raise RuntimeError(f'No nonce returned from newNonce endpoint at {url}')
+        raise RuntimeError('No nonce returned from newNonce endpoint at {}'.format(url))
     return nonce
 
 
@@ -357,7 +359,7 @@ def main():
             info = load_dehydrated_info(args)
             if info and info.url is not None:
                 # TODO: Verify account using newAccount with onlyReturnExisting=True.
-                logger.debug(f'Dehydrated account for URL {info.url} found')
+                logger.debug('Dehydrated account for URL {} found'.format(info.url))
                 res = True
         elif args.mode in ['renew', 'init']:
             if args.mode == 'renew':
