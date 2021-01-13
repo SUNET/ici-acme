@@ -14,7 +14,7 @@ from typing import Mapping, Optional
 import pkcs11
 import requests
 import yaml
-from pkcs11 import Attribute, ObjectClass, KeyType
+from pkcs11 import Attribute, ObjectClass, KeyType, UserNotLoggedIn
 from OpenSSL import crypto
 from jose import jwk, jws, JWSError
 
@@ -100,7 +100,10 @@ class P11Key(jwk.Key):
                 self._mechanism = pkcs11.Mechanism.SHA256_RSA_PKCS_PSS
 
     def sign(self, msg: bytes) -> bytes:
+        assert isinstance(self.token, pkcs11.Token)
+        logger.info('Opening session with PIN')
         with self.token.open(user_pin=self.p11.pin) as session:
+            logger.info(f'Session: {session}')
             self._load_key(session)
 
             if not self._private_key:
@@ -110,11 +113,28 @@ class P11Key(jwk.Key):
             if self._mechanism == pkcs11.Mechanism.ECDSA:
                 msg = hashlib.sha256(msg).digest()
                 logger.debug(f'SHA-256 hashed into new data: {binascii.hexlify(msg)}')
-            signature = self._private_key.sign(msg, mechanism=self._mechanism)
+            logger.info(f'Signing using private key {self._private_key}')
+            try:
+                signature = self._private_key.sign(msg, mechanism=self._mechanism)
+            except UserNotLoggedIn:
+                logger.error("""
+
+                Got UserNotLoggedIn from opensc. You need to add
+
+                    app default {
+                        framework pkcs15 {
+                                pin_cache_ignore_user_consent = false;
+                        }
+                    }
+
+                to /etc/opensc/opensc.conf, and not have a too old opensc (works with 0.20.0).
+                """)
+                return None
             logger.debug(f'Signature: {binascii.hexlify(signature)}')
         return signature
 
     def verify(self, msg: bytes, sig: bytes) -> bool:
+        assert isinstance(self.token, pkcs11.Token)
         with self.token.open(user_pin=self.p11.pin) as session:
             self._load_key(session)
 
@@ -226,6 +246,7 @@ def main(args: argparse.Namespace, logger: logging.Logger):
     expire = now + datetime.timedelta(minutes=5)
     directory = get_acme_directory(args.url)
 
+    logger.debug(f'Loading certificate from {args.cert}')
     with open(args.cert, 'rb') as fd:
         cert_pem = fd.read()
 
@@ -243,6 +264,8 @@ def main(args: argparse.Namespace, logger: logging.Logger):
               'crit': ['exp'],
               }
     token = pkcs11_jws_sign(claims, args.cka_label, headers=headers)
+    if not token:
+        return False
     logger.debug(f'JWS: {token}')
 
     sig_verified = False
