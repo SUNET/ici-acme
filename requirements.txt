@@ -1,6 +1,6 @@
 falcon==1.4.*
 python-jose==3.0.1
-PyYAML==5.1
+PyYAML==5.4
 gunicorn==19.9.0
 cryptography
 inotify>=0.2.10
